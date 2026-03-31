@@ -207,6 +207,20 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('"action": "deny"', proc.stdout)
 
+    def test_suggest_rules_reads_event_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "events.jsonl")
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '{"kind":"exec","action":"allow","template":"ls *","tool":"ls","verb":"exec","category":"read-only","raw":"ls src"}\n'
+                )
+                handle.write(
+                    '{"kind":"exec","action":"allow","template":"ls *","tool":"ls","verb":"exec","category":"read-only","raw":"ls tests"}\n'
+                )
+            proc = self.run_cli("suggest-rules", "--log", log_path, env={"AGENT_JAIL_HOME": tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("suggestions: 1", proc.stdout)
+
     def test_run_stops_process_when_kill_switch_appears(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()

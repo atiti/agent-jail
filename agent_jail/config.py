@@ -49,4 +49,17 @@ def load_config(path=None):
         "write_roots": _normalize_path_list(filesystem.get("write_roots")),
         "deny_read_patterns": _normalize_pattern_list(filesystem.get("deny_read_patterns")),
     }
+    llm_policy = data.get("llm_policy")
+    if not isinstance(llm_policy, dict):
+        llm_policy = {}
+    data["llm_policy"] = {
+        "provider": llm_policy.get("provider", ""),
+        "model": llm_policy.get("model", ""),
+        "endpoint_env": llm_policy.get("endpoint_env", "AZURE_OPENAI_ENDPOINT"),
+        "api_key_env": llm_policy.get("api_key_env", "AZURE_OPENAI_API_KEY"),
+        "deployment_env": llm_policy.get("deployment_env", "AZURE_OPENAI_DEPLOYMENT"),
+        "api_version": llm_policy.get("api_version", "2024-10-21"),
+        "auto_promote_min_count": int(llm_policy.get("auto_promote_min_count", 3)),
+        "confidence_threshold": float(llm_policy.get("confidence_threshold", 0.8)),
+    }
     return data

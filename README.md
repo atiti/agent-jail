@@ -93,6 +93,14 @@ python3 agent-jail monitor --follow
 python3 agent-jail monitor --json
 ```
 
+Generate policy suggestions from observed event history:
+
+```bash
+python3 agent-jail suggest-rules
+python3 agent-jail suggest-rules --apply-low-risk
+python3 agent-jail suggest-rules --json
+```
+
 ## How it works
 
 1. `agent-jail` creates a temporary session directory.
@@ -102,6 +110,8 @@ python3 agent-jail monitor --json
 5. Approved commands are executed via the real binary from the original `PATH`.
 
 Broker decisions are recorded as structured JSONL events under `~/.agent-jail/events/`. The latest session also publishes its event log and optional live socket in `~/.agent-jail/runtime.json`, which powers `agent-jail monitor`.
+
+Those same event logs power `agent-jail suggest-rules`, which clusters repeated command patterns and can propose broader allow rules without widening to path-specific one-offs.
 
 The session also resolves capabilities:
 
@@ -222,6 +232,25 @@ Example:
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 
 The optional `filesystem` section lets you widen read-only visibility and add extra writable roots without exposing your entire home directory. `deny_read_patterns` are expanded from your local home and rendered into the macOS `sandbox-exec` profile as explicit read denials, so broad read-only roots like `~/build` can still exclude secret-like files.
+
+You can also configure Azure OpenAI for offline rule suggestion and low-risk auto-promotion:
+
+```json
+{
+  "llm_policy": {
+    "provider": "azure_openai",
+    "model": "gpt-5.4",
+    "endpoint_env": "AZURE_OPENAI_ENDPOINT",
+    "api_key_env": "AZURE_OPENAI_API_KEY",
+    "deployment_env": "AZURE_OPENAI_DEPLOYMENT",
+    "api_version": "2024-10-21",
+    "auto_promote_min_count": 3,
+    "confidence_threshold": 0.8
+  }
+}
+```
+
+When configured, `agent-jail suggest-rules` asks Azure OpenAI for generalized proposals, validates them deterministically, and only auto-applies low-risk rules that clear the configured thresholds.
 
 Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
 

@@ -42,3 +42,30 @@ class ConfigTests(unittest.TestCase):
             config["filesystem"],
             {"read_only_roots": [], "write_roots": [], "deny_read_patterns": []},
         )
+        self.assertEqual(config["llm_policy"]["provider"], "")
+        self.assertEqual(config["llm_policy"]["endpoint_env"], "AZURE_OPENAI_ENDPOINT")
+        self.assertEqual(config["llm_policy"]["api_key_env"], "AZURE_OPENAI_API_KEY")
+        self.assertEqual(config["llm_policy"]["deployment_env"], "AZURE_OPENAI_DEPLOYMENT")
+
+    def test_load_config_normalizes_llm_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "config.json")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "llm_policy": {
+                            "provider": "azure_openai",
+                            "model": "gpt-test",
+                            "api_version": "2024-10-21",
+                            "auto_promote_min_count": 4,
+                            "confidence_threshold": 0.9,
+                        }
+                    },
+                    handle,
+                )
+            config = load_config(config_path)
+        self.assertEqual(config["llm_policy"]["provider"], "azure_openai")
+        self.assertEqual(config["llm_policy"]["model"], "gpt-test")
+        self.assertEqual(config["llm_policy"]["api_version"], "2024-10-21")
+        self.assertEqual(config["llm_policy"]["auto_promote_min_count"], 4)
+        self.assertEqual(config["llm_policy"]["confidence_threshold"], 0.9)

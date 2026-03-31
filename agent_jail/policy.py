@@ -28,6 +28,10 @@ class PolicyStore:
     def rules(self):
         return self.data.setdefault("rules", [])
 
+    @property
+    def suggestions(self):
+        return self.data.setdefault("suggestions", [])
+
     def match(self, subject, kind="exec"):
         for rule in self.rules:
             if rule.get("kind", "exec") != kind:
@@ -78,3 +82,20 @@ class PolicyStore:
         if not self.match({"tool": rule["tool"], "action": rule["action"], "force": False}):
             self.rules.append(rule)
             self.save()
+
+    def add_rule(self, rule):
+        subject = {
+            "tool": rule.get("tool"),
+            "action": rule.get("action"),
+        }
+        constraints = rule.get("constraints") or {}
+        subject.update(constraints)
+        if self.match(subject, kind=rule.get("kind", "exec")):
+            return False
+        self.rules.append(rule)
+        self.save()
+        return True
+
+    def replace_suggestions(self, suggestions):
+        self.data["suggestions"] = list(suggestions)
+        self.save()

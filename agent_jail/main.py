@@ -17,6 +17,7 @@ from agent_jail.config import load_config
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_proxy
+from agent_jail.rule_suggestions import apply_suggestions, build_rule_suggestions
 from agent_jail.wrappers import write_wrappers
 
 DEFAULT_KILL_SWITCH = "/tmp/agent-jail.stop"
@@ -148,6 +149,11 @@ def parse_args(argv=None):
     monitor.add_argument("--json", action="store_true")
     monitor.add_argument("--log")
     monitor.add_argument("--socket")
+    suggest = sub.add_parser("suggest-rules")
+    suggest.add_argument("--json", action="store_true")
+    suggest.add_argument("--apply-low-risk", action="store_true")
+    suggest.add_argument("--limit", type=int, default=500)
+    suggest.add_argument("--log", action="append", default=[])
     return parser, parser.parse_args(argv)
 
 
@@ -202,10 +208,40 @@ def monitor_events(args):
             time.sleep(0.1)
 
 
+def suggest_rules(args):
+    home = ensure_home()
+    config = load_config()
+    store = PolicyStore(os.path.join(home, "policy.json"))
+    log_paths = [os.path.abspath(os.path.expanduser(path)) for path in (args.log or [])]
+    result = build_rule_suggestions(store, config, event_paths=log_paths or None, limit=args.limit)
+    applied = []
+    if args.apply_low_risk:
+        applied = apply_suggestions(store, result["suggestions"], auto_only=True)
+    output = {
+        "clusters": result["clusters"],
+        "suggestions": result["suggestions"],
+        "applied": applied,
+    }
+    if args.json:
+        print(json.dumps(output, indent=2, sort_keys=True))
+    else:
+        print(f"clusters: {len(result['clusters'])}")
+        print(f"suggestions: {len(result['suggestions'])}")
+        print(f"applied: {len(applied)}")
+        for item in result["suggestions"]:
+            rule = item["rule"]
+            template = rule.get("metadata", {}).get("template", "")
+            state = "auto" if item.get("auto_promote") else "suggested"
+            print(f"- [{state}] {template} -> allow {rule['tool']} {rule['action']}")
+    return 0
+
+
 def run(argv=None):
     parser, args = parse_args(argv)
     if args.command == "monitor":
         return monitor_events(args)
+    if args.command == "suggest-rules":
+        return suggest_rules(args)
     if args.command != "run" or not args.target:
         parser.print_usage(sys.stderr)
         raise SystemExit(2)

@@ -37,6 +37,19 @@ SAFE_CLEANUP_NAMES = {
 }
 
 
+def event_template(intent, verdict=None):
+    tool = intent.get("tool") or ""
+    action = intent.get("action") or "exec"
+    category = (verdict or {}).get("category")
+    if category == "cleanup":
+        return "rm generated-artifacts"
+    if tool == "git":
+        return f"git {action} *"
+    if action == "command-string":
+        return f"{tool} -c <script>"
+    return f"{tool} *"
+
+
 def _delegate_tool_map(delegates):
     tool_map = {}
     for delegate in delegates or ():
@@ -271,24 +284,74 @@ class BrokerServer:
         context = {"cwd": request.get("cwd")}
         if matched:
             decision = "allow" if matched["allow"] else "deny"
-            self._log(decision.upper(), raw, "policy")
+            self._log(
+                decision.upper(),
+                raw,
+                "policy",
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, {"category": "policy"}),
+                risk="policy",
+                reason="matched policy",
+            )
             return {"decision": decision, "reason": "matched policy"}
         verdict = classify(intent, argv, delegates=self.delegates.values(), context=context)
         risk = verdict["risk"]
         if risk == "critical" or verdict.get("category") in SENSITIVE_DENY_CATEGORIES:
-            self._log("DENY", raw, verdict.get("category"))
+            self._log(
+                "DENY",
+                raw,
+                verdict.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, verdict),
+                risk=risk,
+                reason=verdict.get("reason"),
+            )
             return {"decision": "deny", "reason": verdict["reason"]}
         delegated_tools = _delegate_tool_map(self.delegates.values())
         if intent["tool"] in delegated_tools or intent["tool"] in BROWSER_TOOLS:
-            self._log("DENY", raw, verdict.get("category"))
+            self._log(
+                "DENY",
+                raw,
+                verdict.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, verdict),
+                risk=risk,
+                reason=verdict.get("reason"),
+            )
             return {"decision": "deny", "reason": verdict["reason"]}
         if risk == "high":
             self.policy_store.learn(intent)
-            self._log("ASK", raw, verdict.get("category"))
+            self._log(
+                "ASK",
+                raw,
+                verdict.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, verdict),
+                risk=risk,
+                reason=verdict.get("reason"),
+            )
             return {"decision": "allow", "reason": f"auto-approved: {verdict['reason']}"}
         if risk == "medium":
             self.policy_store.learn(intent)
-        self._log("ALLOW", raw, verdict.get("category"))
+        self._log(
+            "ALLOW",
+            raw,
+            verdict.get("category"),
+            kind="exec",
+            tool=intent["tool"],
+            verb=intent["action"],
+            template=event_template(intent, verdict),
+            risk=risk,
+            reason=verdict.get("reason"),
+        )
         return {"decision": "allow", "reason": verdict["reason"]}
 
     def _handle_capability(self, request, wfile=None):
@@ -301,7 +364,7 @@ class BrokerServer:
         if matched is not None:
             allowed = allowed and matched["allow"]
         if not allowed:
-            self._log("DENY", f"capability {name}", "capability")
+            self._log("DENY", f"capability {name}", "capability", kind="capability", capability=name)
             return {"decision": "deny", "reason": f"{name} capability denied"}
         if name == "delegate":
             payload = request.get("payload", {})
@@ -325,11 +388,12 @@ class BrokerServer:
             result = run_skill_proxy(self.capabilities, request.get("payload", {}))
         else:
             result = {"status": "ok", "name": name}
-        self._log("ALLOW", f"capability {name}", "capability")
+        self._log("ALLOW", f"capability {name}", "capability", kind="capability", capability=name)
         return {"decision": "allow", "reason": "capability allowed", "result": result}
 
-    def _log(self, tag, raw, category=None):
+    def _log(self, tag, raw, category=None, **extra):
         event = {"action": tag.lower(), "category": category, "raw": raw}
+        event.update({key: value for key, value in extra.items() if value is not None})
         if self.event_sink:
             self.event_sink.emit(event)
         if self.log_stderr:
