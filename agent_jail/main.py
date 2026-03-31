@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import UTC, datetime
 
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
@@ -26,6 +27,19 @@ def resolve_python():
     return os.path.realpath(resolved) if resolved else candidate
 
 
+def resolve_target(target_argv, env):
+    candidate = target_argv[0]
+    if os.path.sep in candidate:
+        resolved = os.path.abspath(os.path.expanduser(candidate))
+        if os.path.exists(resolved):
+            return [resolved, *target_argv[1:]]
+        raise FileNotFoundError(candidate)
+    resolved = shutil.which(candidate, path=env.get("PATH"))
+    if resolved:
+        return [os.path.realpath(resolved), *target_argv[1:]]
+    raise FileNotFoundError(candidate)
+
+
 def ensure_home():
     preferred = os.environ.get("AGENT_JAIL_HOME") or os.path.join(os.path.expanduser("~"), ".agent-jail")
     try:
@@ -33,6 +47,33 @@ def ensure_home():
         return preferred
     except PermissionError:
         return tempfile.mkdtemp(prefix="agent-jail-home-")
+
+
+def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True):
+    os.makedirs(home, exist_ok=True)
+    mounts = []
+    options = [
+        (mount_codex_home, ".codex"),
+        (mount_claude_home, ".claude"),
+    ]
+    real_home = os.path.expanduser("~")
+    for enabled, name in options:
+        if not enabled:
+            continue
+        source = os.path.join(real_home, name)
+        target = os.path.join(home, name)
+        if not os.path.exists(source):
+            continue
+        if os.path.lexists(target):
+            if os.path.islink(target):
+                os.unlink(target)
+            else:
+                backup = f"{target}.agent-jail-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+                shutil.move(target, backup)
+                mounts.append({"source": source, "target": target, "mode": "rw", "status": "backed-up-existing-target", "backup": backup})
+        os.symlink(source, target)
+        mounts.append({"source": source, "target": target, "mode": "rw"})
+    return mounts
 
 
 def parse_args(argv=None):
@@ -47,6 +88,10 @@ def parse_args(argv=None):
     run.add_argument("--allow-browser", action="store_true")
     run.add_argument("--direct-secret-env", action="store_true")
     run.add_argument("--kill-switch")
+    run.add_argument("--mount-codex-home", dest="mount_codex_home", action="store_true", default=True)
+    run.add_argument("--no-mount-codex-home", dest="mount_codex_home", action="store_false")
+    run.add_argument("--mount-claude-home", dest="mount_claude_home", action="store_true", default=True)
+    run.add_argument("--no-mount-claude-home", dest="mount_claude_home", action="store_false")
     run.add_argument("target", nargs=argparse.REMAINDER)
     return parser, parser.parse_args(argv)
 
@@ -84,6 +129,11 @@ def run(argv=None):
         source_cap = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent-jail-cap")
         shutil.copy2(source_cap, cap_target)
         os.chmod(cap_target, 0o755)
+        auth_mounts = prepare_home_mounts(
+            home,
+            mount_codex_home=args.mount_codex_home,
+            mount_claude_home=args.mount_claude_home,
+        )
         env = os.environ.copy()
         env.update(
             {
@@ -94,6 +144,7 @@ def run(argv=None):
                 "AGENT_JAIL_WRAPPER_DIR": wrapper_dir,
                 "AGENT_JAIL_SOURCE_ROOT": source_root,
                 "AGENT_JAIL_CAPABILITIES": json.dumps(session["capabilities"], sort_keys=True),
+                "AGENT_JAIL_AUTH_MOUNTS": json.dumps(auth_mounts, sort_keys=True),
                 "HOME": home,
                 "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
                 "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),
@@ -108,7 +159,12 @@ def run(argv=None):
             proxy_url = f"http://127.0.0.1:{proxy_server.server_port}"
             env.update({"HTTP_PROXY": proxy_url, "HTTPS_PROXY": proxy_url, "ALL_PROXY": proxy_url})
         backend = choose_backend()
-        cmd = build_command(backend, args.target, os.getcwd(), env)
+        try:
+            target_argv = resolve_target(args.target, env)
+        except FileNotFoundError as exc:
+            print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
+            return 127
+        cmd = build_command(backend, target_argv, os.getcwd(), env)
         try:
             proc = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
             while True:
