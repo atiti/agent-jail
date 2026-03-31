@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -35,7 +36,7 @@ class JITRuleEngine:
             return {
                 "decision_hint": "ask",
                 "confidence": 0.0,
-                "reason": "jit provider unavailable",
+                "reason": "jit provider unavailable: missing azure openai config",
                 "template": template,
                 "source": "jit",
             }
@@ -103,11 +104,40 @@ class JITRuleEngine:
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, ValueError):
+        except urllib.error.HTTPError as exc:
             return {
                 "decision_hint": "ask",
                 "confidence": 0.0,
-                "reason": "jit request failed",
+                "reason": f"jit http error: {exc.code}",
+                "template": template,
+                "source": "jit",
+            }
+        except urllib.error.URLError as exc:
+            root = exc.reason
+            if isinstance(root, socket.timeout):
+                detail = "timeout"
+            else:
+                detail = str(root)
+            return {
+                "decision_hint": "ask",
+                "confidence": 0.0,
+                "reason": f"jit request failed: {detail}",
+                "template": template,
+                "source": "jit",
+            }
+        except TimeoutError:
+            return {
+                "decision_hint": "ask",
+                "confidence": 0.0,
+                "reason": "jit request failed: timeout",
+                "template": template,
+                "source": "jit",
+            }
+        except ValueError:
+            return {
+                "decision_hint": "ask",
+                "confidence": 0.0,
+                "reason": "jit response payload was not valid json",
                 "template": template,
                 "source": "jit",
             }

@@ -1,3 +1,5 @@
+import socket
+import urllib.error
 import unittest
 
 from agent_jail.rule_jit import JITRuleEngine
@@ -61,3 +63,62 @@ class JITRuleTests(unittest.TestCase):
             "tree *",
         )
         self.assertEqual(result["decision_hint"], "ask")
+
+    def test_missing_provider_config_reports_explicit_reason(self):
+        engine = JITRuleEngine({"jit_enabled": True})
+        result = engine._decide_remote({"tool": "tree", "action": "exec"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *", {})
+        self.assertIn("missing azure openai config", result["reason"])
+
+    def test_timeout_error_is_explicit(self):
+        class _TimeoutEngine(JITRuleEngine):
+            def _azure_enabled(self):
+                return True
+
+        engine = _TimeoutEngine(
+            {
+                "provider": "azure_openai",
+                "endpoint_env": "AZURE_OPENAI_ENDPOINT",
+                "api_key_env": "AZURE_OPENAI_API_KEY",
+                "deployment_env": "AZURE_OPENAI_DEPLOYMENT",
+                "jit_timeout_ms": 100,
+            },
+            environ={
+                "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
+                "AZURE_OPENAI_API_KEY": "secret",
+                "AZURE_OPENAI_DEPLOYMENT": "gpt-test",
+            },
+        )
+
+        import urllib.request
+        from unittest import mock
+
+        with mock.patch.object(urllib.request, "urlopen", side_effect=urllib.error.URLError(socket.timeout())):
+            result = engine._decide_remote({"tool": "tree", "action": "exec"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *", {})
+        self.assertEqual(result["reason"], "jit request failed: timeout")
+
+    def test_http_error_is_explicit(self):
+        class _HttpEngine(JITRuleEngine):
+            def _azure_enabled(self):
+                return True
+
+        engine = _HttpEngine(
+            {
+                "provider": "azure_openai",
+                "endpoint_env": "AZURE_OPENAI_ENDPOINT",
+                "api_key_env": "AZURE_OPENAI_API_KEY",
+                "deployment_env": "AZURE_OPENAI_DEPLOYMENT",
+            },
+            environ={
+                "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
+                "AZURE_OPENAI_API_KEY": "secret",
+                "AZURE_OPENAI_DEPLOYMENT": "gpt-test",
+            },
+        )
+
+        import urllib.request
+        from unittest import mock
+
+        http_error = urllib.error.HTTPError("https://example", 401, "Unauthorized", hdrs=None, fp=None)
+        with mock.patch.object(urllib.request, "urlopen", side_effect=http_error):
+            result = engine._decide_remote({"tool": "tree", "action": "exec"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *", {})
+        self.assertEqual(result["reason"], "jit http error: 401")
