@@ -99,6 +99,19 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(verdict["risk"], "medium")
         self.assertEqual(verdict["category"], "mutating")
 
+    def test_classify_repo_local_cache_cleanup_as_low(self):
+        argv = ["rm", "-rf", "agent_jail/__pycache__", "tests/__pycache__"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, context={"cwd": "/repo"})
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "cleanup")
+
+    def test_classify_cleanup_escape_outside_repo_is_not_low(self):
+        argv = ["rm", "-rf", "../__pycache__"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, context={"cwd": "/repo"})
+        self.assertNotEqual(verdict["category"], "cleanup")
+
     def test_classify_absolute_sensitive_path_in_shell_script_as_critical(self):
         argv = ["bash", "-c", "/usr/bin/ssh app@host uptime"]
         intent = normalize(argv)

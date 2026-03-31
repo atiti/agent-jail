@@ -49,6 +49,7 @@ class IntegrationTests(unittest.TestCase):
                     "AGENT_JAIL_SOCKET": sock_path,
                     "AGENT_JAIL_ORIG_PATH": real_dir,
                     "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
                 }
             )
             proc = subprocess.run(
@@ -94,6 +95,7 @@ class IntegrationTests(unittest.TestCase):
                     "AGENT_JAIL_SOCKET": sock_path,
                     "AGENT_JAIL_ORIG_PATH": real_dir,
                     "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
                 }
             )
             proc = subprocess.run(
@@ -129,6 +131,7 @@ class IntegrationTests(unittest.TestCase):
                     "AGENT_JAIL_SOCKET": sock_path,
                     "AGENT_JAIL_ORIG_PATH": real_dir,
                     "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
                 }
             )
             proc = subprocess.run(
@@ -174,6 +177,7 @@ class IntegrationTests(unittest.TestCase):
                     "AGENT_JAIL_SOCKET": sock_path,
                     "AGENT_JAIL_ORIG_PATH": real_dir,
                     "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
                 }
             )
             proc = subprocess.run(
@@ -184,3 +188,43 @@ class IntegrationTests(unittest.TestCase):
             )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("agent-jail-cap delegate ops", proc.stderr)
+
+    def test_wrapper_allows_repo_local_cache_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            wrapper_dir = os.path.join(tmp, "bin")
+            real_dir = os.path.join(tmp, "real")
+            repo_dir = os.path.join(tmp, "repo")
+            os.mkdir(real_dir)
+            os.makedirs(os.path.join(repo_dir, "agent_jail", "__pycache__"))
+            os.makedirs(os.path.join(repo_dir, "tests", "__pycache__"))
+            rm_path = os.path.join(real_dir, "rm")
+            with open(rm_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho REAL-RM \"$@\"\n")
+            os.chmod(rm_path, 0o755)
+
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(sock_path, store)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+
+            write_wrappers(wrapper_dir, ["rm"])
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_SOCKET": sock_path,
+                    "AGENT_JAIL_ORIG_PATH": real_dir,
+                    "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
+                }
+            )
+            proc = subprocess.run(
+                ["rm", "-rf", "agent_jail/__pycache__", "tests/__pycache__"],
+                cwd=repo_dir,
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("REAL-RM -rf agent_jail/__pycache__ tests/__pycache__", proc.stdout)

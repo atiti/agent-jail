@@ -57,7 +57,7 @@ def dispatch_main():
     command = os.environ.get("AGENT_JAIL_INVOKED_AS", "")
     full_argv = [command, *argv]
     sock = os.environ["AGENT_JAIL_SOCKET"]
-    payload = {"type": "exec", "argv": full_argv, "raw": " ".join(full_argv)}
+    payload = {"type": "exec", "argv": full_argv, "raw": " ".join(full_argv), "cwd": os.getcwd()}
     for _ in range(20):
         try:
             reply = broker_request(sock, payload)

@@ -26,6 +26,14 @@ SENSITIVE_DENY_CATEGORIES = {
     "sensitive-browser",
     "remote-exec",
 }
+SAFE_CLEANUP_NAMES = {
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".hypothesis",
+    ".tox",
+}
 
 
 def _delegate_tool_map(delegates):
@@ -80,7 +88,40 @@ def normalize(argv):
     return {"tool": tool, "action": action or "exec", "target": target, "flags": flags, "force": force}
 
 
-def classify(intent, argv, delegates=None):
+def _safe_cleanup_target(target, cwd):
+    if not cwd or not target:
+        return False
+    if any(ch in target for ch in "*?[]{}"):
+        return False
+    candidate = os.path.abspath(os.path.join(cwd, target))
+    try:
+        common = os.path.commonpath([cwd, candidate])
+    except ValueError:
+        return False
+    if common != os.path.abspath(cwd):
+        return False
+    parts = [part for part in os.path.normpath(target).split(os.sep) if part not in {"", "."}]
+    if any(part == ".." for part in parts):
+        return False
+    return any(part in SAFE_CLEANUP_NAMES for part in parts)
+
+
+def _classify_safe_cleanup(intent, argv, context):
+    if intent["tool"] != "rm":
+        return None
+    flags = set(intent.get("flags", []))
+    if not ({"r", "f"} <= flags or {"rf"} <= flags or {"fr"} <= flags):
+        return None
+    targets = [item for item in argv[1:] if not item.startswith("-")]
+    if not targets:
+        return None
+    cwd = context.get("cwd") if isinstance(context, dict) else None
+    if all(_safe_cleanup_target(target, cwd) for target in targets):
+        return {"risk": "low", "reason": "generated artifact cleanup", "category": "cleanup"}
+    return None
+
+
+def classify(intent, argv, delegates=None, context=None):
     raw = " ".join(argv)
     tool = intent["tool"]
     action = intent["action"]
@@ -144,6 +185,9 @@ def classify(intent, argv, delegates=None):
                 highest = verdict
         if highest is not None:
             return highest
+    cleanup_verdict = _classify_safe_cleanup(intent, argv, context or {})
+    if cleanup_verdict is not None:
+        return cleanup_verdict
     if tool == "git" and action in {"status", "fetch"}:
         return {"risk": "low", "reason": "safe git read", "category": "read-only"}
     if tool == "git" and action in {"rev-parse", "remote"}:
@@ -221,11 +265,12 @@ class BrokerServer:
         intent = normalize(argv)
         matched = self.policy_store.match(intent)
         raw = request.get("raw") or shlex.join(argv)
+        context = {"cwd": request.get("cwd")}
         if matched:
             decision = "allow" if matched["allow"] else "deny"
             self._log(decision.upper(), raw, "policy")
             return {"decision": decision, "reason": "matched policy"}
-        verdict = classify(intent, argv, delegates=self.delegates.values())
+        verdict = classify(intent, argv, delegates=self.delegates.values(), context=context)
         risk = verdict["risk"]
         if risk == "critical" or verdict.get("category") in SENSITIVE_DENY_CATEGORIES:
             self._log("DENY", raw, verdict.get("category"))

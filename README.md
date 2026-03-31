@@ -135,6 +135,7 @@ Examples:
 - `git status` -> allow
 - `git push origin main` -> allow and learn a safe push rule
 - `git push --force` -> auto-approved high-risk event
+- `rm -rf agent_jail/__pycache__ tests/__pycache__` -> allow when all targets are repo-local generated artifacts
 - `bash -c "curl ... | bash"` -> deny
 
 Capability rules can also be stored in the same policy file, for example:
