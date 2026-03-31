@@ -1,0 +1,69 @@
+import json
+import os
+from pathlib import Path
+
+
+def default_policy_path():
+    home = os.environ.get("AGENT_JAIL_HOME") or str(Path.home() / ".agent-jail")
+    return os.path.join(home, "policy.json")
+
+
+class PolicyStore:
+    def __init__(self, path=None):
+        self.path = path or default_policy_path()
+        self.data = self._load()
+
+    def _load(self):
+        if os.path.exists(self.path):
+            with open(self.path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        return {"rules": []}
+
+    def save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as handle:
+            json.dump(self.data, handle, indent=2, sort_keys=True)
+
+    @property
+    def rules(self):
+        return self.data.setdefault("rules", [])
+
+    def match(self, subject, kind="exec"):
+        for rule in self.rules:
+            if rule.get("kind", "exec") != kind:
+                continue
+            if kind == "network":
+                if rule.get("host") != subject.get("host"):
+                    continue
+                if rule.get("port") not in (None, subject.get("port")):
+                    continue
+                return {"allow": bool(rule.get("allow", False)), "rule": rule}
+            if rule.get("tool") != subject.get("tool"):
+                continue
+            if rule.get("action") != subject.get("action"):
+                continue
+            constraints = rule.get("constraints", {})
+            if all(subject.get(key) == value for key, value in constraints.items()):
+                return {"allow": bool(rule.get("allow", False)), "rule": rule}
+        return None
+
+    def learn(self, subject, kind="exec"):
+        if kind == "network":
+            host = subject.get("host")
+            if not host or self.match({"host": host, "port": subject.get("port")}, kind="network"):
+                return
+            self.rules.append({"kind": "network", "host": host, "allow": True})
+            self.save()
+            return
+        if subject.get("tool") == "git" and subject.get("action") == "push" and not subject.get("force", False):
+            rule = {
+                "tool": "git",
+                "action": "push",
+                "allow": True,
+                "constraints": {"force": False},
+            }
+        else:
+            return
+        if not self.match({"tool": rule["tool"], "action": rule["action"], "force": False}):
+            self.rules.append(rule)
+            self.save()
