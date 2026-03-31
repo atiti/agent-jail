@@ -143,6 +143,8 @@ Capability rules can also be stored in the same policy file, for example:
 - `ops_exec`
 - `browser_automation`
 
+For shell command strings such as `bash -c "..."`, `agent-jail` now analyzes chained segments, pipelines, subshells, and command substitutions for policy before execution. The original shell string is still executed unchanged if it passes.
+
 ## Network proxy
 
 The proxy is explicit-proxy based. When enabled, `agent-jail` sets:

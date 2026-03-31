@@ -8,6 +8,7 @@ from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
+from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
 BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
@@ -18,6 +19,13 @@ DEFAULT_SENSITIVE_ABSOLUTE_PATHS = {
     "/usr/bin/ssh": "use mediated ops tooling instead of direct ssh",
 }
 DEFAULT_PRIVILEGED_TOOLS = {"sudo", "doas"}
+SENSITIVE_DENY_CATEGORIES = {
+    "absolute-path-sensitive",
+    "privilege-escalation",
+    "sensitive-delegate",
+    "sensitive-browser",
+    "remote-exec",
+}
 
 
 def _delegate_tool_map(delegates):
@@ -117,8 +125,25 @@ def classify(intent, argv, delegates=None):
                     "reason": f"direct absolute-path access to {sensitive_path} is blocked; {guidance}",
                     "category": "absolute-path-sensitive",
                 }
-        if "curl " in script and "|" in script and any(shell in script for shell in ("bash", "sh")):
-            return {"risk": "critical", "reason": "remote shell pipeline", "category": "remote-exec"}
+        try:
+            analysis = analyze_shell_script(script)
+        except ShellAnalysisError:
+            return {"risk": "critical", "reason": "unparseable shell command", "category": "shell-parse"}
+        for pipeline in analysis["pipelines"]:
+            tools = [os.path.basename(command[0]) for command in pipeline if command]
+            if any(name in {"curl", "wget"} for name in tools) and any(name in {"bash", "sh", "zsh"} for name in tools):
+                return {"risk": "critical", "reason": "remote shell pipeline", "category": "remote-exec"}
+        highest = None
+        risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        for command in analysis["commands"]:
+            nested_intent = normalize(command)
+            verdict = classify(nested_intent, command, delegates=delegates)
+            if verdict["category"] in SENSITIVE_DENY_CATEGORIES:
+                return verdict
+            if highest is None or risk_rank[verdict["risk"]] > risk_rank[highest["risk"]]:
+                highest = verdict
+        if highest is not None:
+            return highest
     if tool == "git" and action in {"status", "fetch"}:
         return {"risk": "low", "reason": "safe git read", "category": "read-only"}
     if tool == "git" and action in {"rev-parse", "remote"}:
@@ -202,7 +227,7 @@ class BrokerServer:
             return {"decision": decision, "reason": "matched policy"}
         verdict = classify(intent, argv, delegates=self.delegates.values())
         risk = verdict["risk"]
-        if risk == "critical":
+        if risk == "critical" or verdict.get("category") in SENSITIVE_DENY_CATEGORIES:
             self._log("DENY", raw, verdict.get("category"))
             return {"decision": "deny", "reason": verdict["reason"]}
         delegated_tools = _delegate_tool_map(self.delegates.values())

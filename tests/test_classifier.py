@@ -106,6 +106,34 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(verdict["risk"], "critical")
         self.assertEqual(verdict["category"], "absolute-path-sensitive")
 
+    def test_classify_read_only_shell_chain_as_low(self):
+        argv = ["bash", "-c", "git status && git rev-parse HEAD"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "read-only")
+
+    def test_classify_shell_chain_with_delegate_tool_as_high(self):
+        argv = ["bash", "-c", "git status && opsctl status"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, delegates=self.delegates)
+        self.assertEqual(verdict["risk"], "high")
+        self.assertEqual(verdict["category"], "sensitive-delegate")
+
+    def test_classify_shell_command_substitution_with_sensitive_path_as_critical(self):
+        argv = ["bash", "-c", "echo $(/usr/bin/ssh app@host uptime)"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, delegates=self.delegates)
+        self.assertEqual(verdict["risk"], "critical")
+        self.assertEqual(verdict["category"], "absolute-path-sensitive")
+
+    def test_classify_unparseable_shell_command_as_critical(self):
+        argv = ["bash", "-c", "echo $(git status"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, delegates=self.delegates)
+        self.assertEqual(verdict["risk"], "critical")
+        self.assertEqual(verdict["category"], "shell-parse")
+
     def test_classify_delegate_executor_name_as_critical(self):
         argv = ["delegate-exec", "status"]
         intent = normalize(argv)
