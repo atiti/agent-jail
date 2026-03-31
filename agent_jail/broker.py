@@ -80,14 +80,15 @@ def _delegate_executor_tools(delegates):
 def normalize(argv):
     tool = os.path.basename(argv[0]) if argv else ""
     flags = []
-    action = ""
+    action = "exec"
     target = None
     force = False
     if tool in {"sh", "bash", "zsh"} and len(argv) > 2 and argv[1] in {"-c", "-lc"}:
         action = "command-string"
         flags.append(argv[1].lstrip("-"))
         target = argv[2]
-    else:
+    elif tool == "git":
+        action = ""
         for item in argv[1:]:
             if item.startswith("-"):
                 flag = item.lstrip("-")
@@ -98,8 +99,17 @@ def normalize(argv):
                 action = item
             elif target is None:
                 target = item
-            elif tool == "git" and action == "push":
+            elif action == "push":
                 target = f"{target}/{item}"
+    else:
+        for item in argv[1:]:
+            if item.startswith("-"):
+                flag = item.lstrip("-")
+                flags.append(flag)
+                if flag in {"f", "force"}:
+                    force = True
+            elif target is None:
+                target = item
     return {"tool": tool, "action": action or "exec", "target": target, "flags": flags, "force": force}
 
 
@@ -410,7 +420,7 @@ class BrokerServer:
                     "tool": intent["tool"],
                     "action": intent["action"],
                     "raw": raw,
-                    "template": template,
+                    "template": ((jit.get("rule") or {}).get("metadata") or {}).get("template", template),
                     "reason": jit.get("reason", "unknown low-impact command"),
                     "confidence": jit.get("confidence"),
                     "rule": jit.get("rule"),

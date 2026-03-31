@@ -107,6 +107,14 @@ class PolicyStore:
 
     def add_pending_review(self, review):
         item = dict(review)
+        for existing in self.pending_reviews:
+            if (
+                existing.get("kind") == item.get("kind")
+                and existing.get("tool") == item.get("tool")
+                and existing.get("action") == item.get("action")
+                and existing.get("template") == item.get("template")
+            ):
+                return existing
         item.setdefault("id", str(uuid.uuid4()))
         self.pending_reviews.append(item)
         self.save()

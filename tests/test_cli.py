@@ -236,6 +236,7 @@ class CLITests(unittest.TestCase):
                                 "tool": "tree",
                                 "action": "exec",
                                 "raw": "tree -L 2",
+                                "template": "tree *",
                             }
                         ],
                     },
@@ -244,6 +245,7 @@ class CLITests(unittest.TestCase):
             proc = self.run_cli("review", "list", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("review-1", proc.stdout)
+        self.assertIn("tree *", proc.stdout)
 
     def test_review_approve_adds_rule(self):
         with tempfile.TemporaryDirectory() as tmp:

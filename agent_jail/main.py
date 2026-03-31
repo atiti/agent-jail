@@ -273,7 +273,8 @@ def handle_review(args):
         else:
             print(f"pending: {len(reviews)}")
             for review in reviews:
-                print(f"- {review['id']} | {review.get('tool')} {review.get('action')} | {review.get('raw')}")
+                template = review.get("template") or review.get("raw")
+                print(f"- {review['id']} | {review.get('tool')} {review.get('action')} | {template}")
         return 0
     review = store.get_pending_review(args.review_id)
     if not review:
