@@ -4,6 +4,8 @@ import time
 
 from agent_jail.broker import broker_request
 
+BLACKLISTED_WRAPPERS = {"python", "python3", "node", "agent-jail", "agent-jail-cap"}
+
 
 DISPATCHER = """#!/bin/sh
 exec "{python}" -c 'from agent_jail.wrappers import dispatch_main; dispatch_main()' "$0" "$@"
@@ -32,7 +34,7 @@ def write_wrappers(wrapper_dir, commands=None, source_path=None, python_executab
     if commands is None:
         commands = visible_commands(source_path or os.environ.get("PATH", ""))
     for name in commands:
-        if name == "_agent_jail_dispatch":
+        if name == "_agent_jail_dispatch" or name in BLACKLISTED_WRAPPERS:
             continue
         target = os.path.join(wrapper_dir, name)
         if os.path.lexists(target):

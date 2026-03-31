@@ -16,6 +16,15 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_wrapper_generation_skips_python_and_node(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wrapper_dir = os.path.join(tmp, "bin")
+            write_wrappers(wrapper_dir, ["python", "python3", "node", "git"])
+            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "python")))
+            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "python3")))
+            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "node")))
+            self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "git")))
+
     def test_wrapper_allows_safe_git_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             sock_path = os.path.join(tmp, "broker.sock")

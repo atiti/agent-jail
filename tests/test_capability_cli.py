@@ -17,7 +17,7 @@ CAP_CLI = os.path.join(ROOT, "agent-jail-cap")
 class CapabilityCLITests(unittest.TestCase):
     def run_cap(self, *args, env=None):
         return subprocess.run(
-            [sys.executable, CAP_CLI, *args],
+            [CAP_CLI, *args],
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -53,3 +53,20 @@ class CapabilityCLITests(unittest.TestCase):
             proc = self.run_cap("browser", "peekaboo", "screenshot", env=env)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("denied", proc.stderr.lower())
+
+    def test_capability_cli_respects_kill_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            kill_switch = os.path.join(tmp, "stop")
+            open(kill_switch, "w", encoding="utf-8").close()
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(sock_path, store, capabilities={"ops_exec": True})
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+            env = os.environ.copy()
+            env["AGENT_JAIL_SOCKET"] = sock_path
+            env["AGENT_JAIL_KILL_SWITCH"] = kill_switch
+            proc = self.run_cap("ops", "marksterctl", "status", env=env)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("kill switch", proc.stderr.lower())

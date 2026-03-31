@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
@@ -13,6 +14,16 @@ from agent_jail.capabilities import resolve_session_capabilities
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_proxy
 from agent_jail.wrappers import write_wrappers
+
+DEFAULT_KILL_SWITCH = "/tmp/agent-jail.stop"
+
+
+def resolve_python():
+    candidate = sys.executable or shutil.which("python3") or "python3"
+    if os.path.isabs(candidate):
+        return os.path.realpath(candidate)
+    resolved = shutil.which(candidate)
+    return os.path.realpath(resolved) if resolved else candidate
 
 
 def ensure_home():
@@ -35,6 +46,7 @@ def parse_args(argv=None):
     run.add_argument("--allow-ops", action="store_true")
     run.add_argument("--allow-browser", action="store_true")
     run.add_argument("--direct-secret-env", action="store_true")
+    run.add_argument("--kill-switch")
     run.add_argument("target", nargs=argparse.REMAINDER)
     return parser, parser.parse_args(argv)
 
@@ -45,8 +57,14 @@ def run(argv=None):
         parser.print_usage(sys.stderr)
         raise SystemExit(2)
     home = ensure_home()
+    raw_kill_switch = args.kill_switch or DEFAULT_KILL_SWITCH
+    kill_switch = os.path.abspath(os.path.expanduser(raw_kill_switch)) if raw_kill_switch else None
+    if kill_switch and os.path.exists(kill_switch):
+        print("agent-jail stopped by kill switch before launch", file=sys.stderr)
+        raise SystemExit(125)
     with tempfile.TemporaryDirectory(prefix="agent-jail-") as tmp:
         source_root = os.path.dirname(os.path.dirname(__file__))
+        python_executable = resolve_python()
         wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
         sock_path = os.path.join(tmp, "broker.sock")
         store = PolicyStore(os.path.join(home, "policy.json"))
@@ -61,7 +79,7 @@ def run(argv=None):
         broker = BrokerServer(sock_path, store, capabilities=session["capabilities"])
         broker_thread = threading.Thread(target=broker.serve_forever, daemon=True)
         broker_thread.start()
-        write_wrappers(wrapper_dir, source_path=os.environ.get("PATH", ""), python_executable=sys.executable)
+        write_wrappers(wrapper_dir, source_path=os.environ.get("PATH", ""), python_executable=python_executable)
         cap_target = os.path.join(wrapper_dir, "agent-jail-cap")
         source_cap = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent-jail-cap")
         shutil.copy2(source_cap, cap_target)
@@ -72,7 +90,7 @@ def run(argv=None):
                 "AGENT_JAIL_HOME": home,
                 "AGENT_JAIL_SOCKET": sock_path,
                 "AGENT_JAIL_ORIG_PATH": env.get("PATH", ""),
-                "AGENT_JAIL_PYTHON": sys.executable,
+                "AGENT_JAIL_PYTHON": python_executable,
                 "AGENT_JAIL_WRAPPER_DIR": wrapper_dir,
                 "AGENT_JAIL_SOURCE_ROOT": source_root,
                 "AGENT_JAIL_CAPABILITIES": json.dumps(session["capabilities"], sort_keys=True),
@@ -81,6 +99,8 @@ def run(argv=None):
                 "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),
             }
         )
+        if kill_switch:
+            env["AGENT_JAIL_KILL_SWITCH"] = kill_switch
         proxy_server = None
         if args.proxy:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
@@ -90,8 +110,21 @@ def run(argv=None):
         backend = choose_backend()
         cmd = build_command(backend, args.target, os.getcwd(), env)
         try:
-            proc = subprocess.run(cmd, env=env, cwd=os.getcwd())
-            return proc.returncode
+            proc = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
+            while True:
+                code = proc.poll()
+                if code is not None:
+                    return code
+                if kill_switch and os.path.exists(kill_switch):
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                    print("agent-jail stopped by kill switch", file=sys.stderr)
+                    return 125
+                time.sleep(0.1)
         finally:
             if proxy_server:
                 proxy_server.shutdown()

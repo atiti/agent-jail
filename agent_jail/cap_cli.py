@@ -6,6 +6,11 @@ import sys
 from agent_jail.broker import broker_request
 
 
+def _kill_switch_triggered():
+    path = os.environ.get("AGENT_JAIL_KILL_SWITCH")
+    return bool(path) and os.path.exists(path)
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog="agent-jail-cap")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -25,6 +30,9 @@ def parse_args(argv=None):
 
 
 def _request(payload):
+    if _kill_switch_triggered():
+        print("agent-jail-cap stopped by kill switch", file=sys.stderr)
+        raise SystemExit(125)
     sock_path = os.environ.get("AGENT_JAIL_SOCKET")
     if not sock_path:
         raise SystemExit("agent-jail-cap requires AGENT_JAIL_SOCKET")

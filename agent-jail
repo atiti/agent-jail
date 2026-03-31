@@ -1,7 +1,18 @@
-#!/usr/bin/env python3
+#!/bin/sh
 
-from agent_jail.main import main
+SCRIPT_PATH="$0"
+REPO_ROOT="$(python3 - "$SCRIPT_PATH" <<'PY'
+import os
+import sys
 
+print(os.path.dirname(os.path.realpath(sys.argv[1])))
+PY
+)"
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if [ -n "$PYTHONPATH" ]; then
+  export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
+else
+  export PYTHONPATH="$REPO_ROOT"
+fi
+
+exec python3 -m agent_jail.main "$@"
