@@ -7,8 +7,9 @@ from agent_jail.broker import broker_request
 BLACKLISTED_WRAPPERS = {"python", "python3", "node", "agent-jail", "agent-jail-cap"}
 
 
-DISPATCHER = """#!/bin/sh
-exec "{python}" -c 'from agent_jail.wrappers import dispatch_main; dispatch_main()' "$0" "$@"
+WRAPPER_TEMPLATE = """#!/bin/sh
+export AGENT_JAIL_INVOKED_AS="{command}"
+exec "{python}" -c 'from agent_jail.wrappers import dispatch_main; dispatch_main()' "$@"
 """
 
 
@@ -26,25 +27,21 @@ def visible_commands(path_string):
 
 def write_wrappers(wrapper_dir, commands=None, source_path=None, python_executable=None):
     os.makedirs(wrapper_dir, exist_ok=True)
-    dispatcher = os.path.join(wrapper_dir, "_agent_jail_dispatch")
     python_executable = python_executable or sys.executable
-    with open(dispatcher, "w", encoding="utf-8") as handle:
-        handle.write(DISPATCHER.format(python=python_executable))
-    os.chmod(dispatcher, 0o755)
     if commands is None:
         commands = visible_commands(source_path or os.environ.get("PATH", ""))
     for name in commands:
-        if name == "_agent_jail_dispatch" or name in BLACKLISTED_WRAPPERS:
+        if name in BLACKLISTED_WRAPPERS:
             continue
         target = os.path.join(wrapper_dir, name)
         if os.path.lexists(target):
             os.unlink(target)
-        try:
-            os.symlink("_agent_jail_dispatch", target)
-        except OSError:
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write(DISPATCHER.format(python=python_executable))
-            os.chmod(target, 0o755)
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(WRAPPER_TEMPLATE.format(python=python_executable, command=name))
+        os.chmod(target, 0o755)
+    python_shim = os.path.join(wrapper_dir, "python")
+    if not os.path.lexists(python_shim):
+        os.symlink(python_executable, python_shim)
 
 
 def resolve_real_binary(command):
@@ -57,8 +54,8 @@ def resolve_real_binary(command):
 
 def dispatch_main():
     argv = sys.argv[1:]
-    command = os.path.basename(argv[0]) if argv else ""
-    full_argv = [command, *argv[1:]]
+    command = os.environ.get("AGENT_JAIL_INVOKED_AS", "")
+    full_argv = [command, *argv]
     sock = os.environ["AGENT_JAIL_SOCKET"]
     payload = {"type": "exec", "argv": full_argv, "raw": " ".join(full_argv)}
     for _ in range(20):

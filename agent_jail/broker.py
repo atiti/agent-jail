@@ -7,17 +7,43 @@ import threading
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.ops_proxy import run_ops_proxy
+from agent_jail.delegate_proxy import run_delegate_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
-OPS_TOOLS = {"marksterctl", "privateinfractl"}
 BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
-READ_ONLY_TOOLS = {"pwd", "ls", "cat", "rg", "grep", "find", "ruby"}
+READ_ONLY_TOOLS = {"pwd", "ls", "cat", "rg", "grep", "find", "ruby", "head", "printenv"}
 MUTATING_TOOLS = {"mv", "cp", "mkdir", "touch", "sed", "tee"}
-SENSITIVE_ABSOLUTE_PATHS = {
+DEFAULT_SENSITIVE_ABSOLUTE_PATHS = {
+    "/usr/bin/env": "direct env-based dispatch is blocked; invoke wrapped tools by name instead",
     "/usr/bin/ssh": "use mediated ops tooling instead of direct ssh",
-    "/usr/local/bin/infra-runner-exec": "use agent-jail-cap ops instead of direct infra runner access",
 }
+DEFAULT_PRIVILEGED_TOOLS = {"sudo", "doas"}
+
+
+def _delegate_tool_map(delegates):
+    tool_map = {}
+    for delegate in delegates or ():
+        name = delegate.get("name")
+        if not name:
+            continue
+        for tool in delegate.get("allowed_tools", []):
+            tool_map.setdefault(tool, set()).add(name)
+    return tool_map
+
+
+def _delegate_executor_paths(delegates):
+    paths = {}
+    for delegate in delegates or ():
+        executor = delegate.get("executor")
+        if not executor:
+            continue
+        name = delegate.get("name") or "delegate"
+        paths[executor] = f"use agent-jail-cap delegate {name} instead of direct delegate executor access"
+    return paths
+
+
+def _delegate_executor_tools(delegates):
+    return {os.path.basename(path) for path in _delegate_executor_paths(delegates)}
 
 
 def normalize(argv):
@@ -46,15 +72,35 @@ def normalize(argv):
     return {"tool": tool, "action": action or "exec", "target": target, "flags": flags, "force": force}
 
 
-def classify(intent, argv):
+def classify(intent, argv, delegates=None):
     raw = " ".join(argv)
     tool = intent["tool"]
     action = intent["action"]
-    if tool in OPS_TOOLS:
+    command_path = argv[0] if argv else ""
+    sensitive_absolute_paths = dict(DEFAULT_SENSITIVE_ABSOLUTE_PATHS)
+    sensitive_absolute_paths.update(_delegate_executor_paths(delegates))
+    delegated_tools = _delegate_tool_map(delegates)
+    privileged_tools = set(DEFAULT_PRIVILEGED_TOOLS)
+    privileged_tools.update(_delegate_executor_tools(delegates))
+    if os.path.isabs(command_path) and command_path in sensitive_absolute_paths:
+        return {
+            "risk": "critical",
+            "reason": f"direct absolute-path access to {command_path} is blocked; {sensitive_absolute_paths[command_path]}",
+            "category": "absolute-path-sensitive",
+        }
+    if tool in delegated_tools:
+        delegate_names = sorted(delegated_tools[tool])
+        delegate_name = delegate_names[0]
         return {
             "risk": "high",
-            "reason": f"direct ops tools are blocked; use agent-jail-cap ops {' '.join(argv)}",
-            "category": "sensitive-ops",
+            "reason": f"direct delegated tools are blocked; use agent-jail-cap delegate {delegate_name} {' '.join(argv)}",
+            "category": "sensitive-delegate",
+        }
+    if tool in privileged_tools:
+        return {
+            "risk": "critical",
+            "reason": "privilege escalation and delegate executors are blocked; use agent-jail-cap delegate <name> ...",
+            "category": "privilege-escalation",
         }
     if tool in BROWSER_TOOLS:
         return {
@@ -64,7 +110,7 @@ def classify(intent, argv):
         }
     if tool in {"sh", "bash", "zsh"} and action == "command-string":
         script = intent.get("target") or ""
-        for sensitive_path, guidance in SENSITIVE_ABSOLUTE_PATHS.items():
+        for sensitive_path, guidance in sensitive_absolute_paths.items():
             if sensitive_path in script:
                 return {
                     "risk": "critical",
@@ -75,10 +121,20 @@ def classify(intent, argv):
             return {"risk": "critical", "reason": "remote shell pipeline", "category": "remote-exec"}
     if tool == "git" and action in {"status", "fetch"}:
         return {"risk": "low", "reason": "safe git read", "category": "read-only"}
+    if tool == "git" and action in {"rev-parse", "remote"}:
+        return {"risk": "low", "reason": "safe git read", "category": "read-only"}
     if tool == "git" and action == "push" and intent.get("force"):
         return {"risk": "high", "reason": "force push", "category": "mutating"}
     if tool == "git" and action == "push":
         return {"risk": "medium", "reason": "git push", "category": "mutating"}
+    if tool == "sed":
+        flags = set(intent.get("flags", []))
+        if "n" in flags and "i" not in flags and "in-place" not in flags:
+            return {"risk": "low", "reason": "read-only stream edit", "category": "read-only"}
+    if tool == "sort":
+        flags = set(intent.get("flags", []))
+        if "o" not in flags and "output" not in flags:
+            return {"risk": "low", "reason": "read-only sort", "category": "read-only"}
     if tool in {"chmod", "chown"} or raw.startswith("rm -rf"):
         return {"risk": "high", "reason": "destructive mutation", "category": "destructive"}
     if tool in READ_ONLY_TOOLS:
@@ -99,10 +155,11 @@ class _Handler(StreamRequestHandler):
 
 
 class BrokerServer:
-    def __init__(self, path, policy_store, capabilities=None):
+    def __init__(self, path, policy_store, capabilities=None, delegates=None):
         self.path = path
         self.policy_store = policy_store
         self.capabilities = capabilities or {}
+        self.delegates = {item["name"]: item for item in (delegates or []) if item.get("name")}
         self.server = None
 
     def serve_forever(self):
@@ -137,12 +194,13 @@ class BrokerServer:
             decision = "allow" if matched["allow"] else "deny"
             self._log(decision.upper(), raw, "policy")
             return {"decision": decision, "reason": "matched policy"}
-        verdict = classify(intent, argv)
+        verdict = classify(intent, argv, delegates=self.delegates.values())
         risk = verdict["risk"]
         if risk == "critical":
             self._log("DENY", raw, verdict.get("category"))
             return {"decision": "deny", "reason": verdict["reason"]}
-        if intent["tool"] in OPS_TOOLS or intent["tool"] in BROWSER_TOOLS:
+        delegated_tools = _delegate_tool_map(self.delegates.values())
+        if intent["tool"] in delegated_tools or intent["tool"] in BROWSER_TOOLS:
             self._log("DENY", raw, verdict.get("category"))
             return {"decision": "deny", "reason": verdict["reason"]}
         if risk == "high":
@@ -158,13 +216,17 @@ class BrokerServer:
         name = request.get("name")
         matched = self.policy_store.match({"name": name}, kind="capability")
         allowed = bool(self.capabilities.get(name))
+        if name == "delegate":
+            delegate_name = request.get("payload", {}).get("name")
+            allowed = bool(delegate_name) and delegate_name in set(self.capabilities.get("delegates", []))
         if matched is not None:
             allowed = allowed and matched["allow"]
         if not allowed:
             self._log("DENY", f"capability {name}", "capability")
             return {"decision": "deny", "reason": f"{name} capability denied"}
-        if name == "ops_exec":
-            result = run_ops_proxy(self.capabilities, request.get("payload", {}).get("command", []))
+        if name == "delegate":
+            payload = request.get("payload", {})
+            result = run_delegate_proxy(self.capabilities, self.delegates, payload.get("name", ""), payload.get("command", []))
         elif name == "browser_automation":
             result = run_browser_proxy(self.capabilities, request.get("payload", {}))
         elif name == "skills_proxy":

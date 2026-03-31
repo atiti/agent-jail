@@ -14,7 +14,7 @@ It is not a full sandbox. The primary goal is to reduce accidental damage by:
 ## Platform model
 
 - Linux: prefers `bubblewrap`, then `proot`, with host fallback
-- macOS: prefers `alcless` when installed, then host fallback
+- macOS: prefers `sandbox-exec`, then `alcless`, then host fallback
 
 Backend selection controls filesystem/path behavior. Sensitive operations should still be proxied instead of passed through directly.
 
@@ -49,9 +49,10 @@ Run with explicit project mapping and capability flags:
 ```bash
 python3 agent-jail run \
   --project ~/workspace \
-  --project ~/build/markster-ops \
+  --project ~/build/example-ops \
   --allow-write ~/build/agent-jail \
   --allow-ops \
+  --allow-delegate ops \
   --allow-browser \
   codex --yolo
 ```
@@ -59,7 +60,8 @@ python3 agent-jail run \
 Use the mediated capability command surface inside a session:
 
 ```bash
-python3 agent-jail run --allow-ops agent-jail-cap ops marksterctl status
+python3 agent-jail run --allow-delegate ops agent-jail-cap delegate ops opsctl status
+python3 agent-jail run --allow-ops agent-jail-cap ops opsctl status
 python3 agent-jail run --allow-browser agent-jail-cap browser peekaboo screenshot
 python3 agent-jail run agent-jail-cap skill gmail search
 ```
@@ -89,11 +91,19 @@ The session also resolves capabilities:
 
 - project mounts are mapped read-only or read-write
 - `skills_proxy` is enabled by default
-- `ops_exec` is opt-in
+- delegates are opt-in by name
+- `ops_exec` remains as a backward-compatible alias for delegate `ops`
 - `browser_automation` is opt-in
 - direct secret env passthrough is off by default
 
 Inside the session, proxied capabilities are exposed through `agent-jail-cap` instead of handing the agent raw host tools.
+
+On macOS, the default `sandbox-exec` backend is a stopgap write-containment layer:
+
+- it constrains writes to the selected writable project paths
+- it keeps auth state and jail state writable where needed
+- it applies to absolute-path shell launches like `/bin/zsh -lc ...`
+- it is still deprecated Apple technology, so treat it as a practical guard rail rather than a future-proof sandbox
 
 Rules live in:
 
@@ -150,31 +160,64 @@ The intended pattern is:
 - proxy production operations instead of giving the sandbox direct credentials
 - proxy browser automation from the host side
 
-The first mediated command surface is:
+The mediated command surface is:
 
-- `agent-jail-cap ops ...`
+- `agent-jail-cap delegate <name> ...`
+- `agent-jail-cap ops ...` as a backward-compatible alias for delegate `ops`
 - `agent-jail-cap skill <name> <operation>`
 - `agent-jail-cap browser <tool> <action>`
 
+Delegates are configured in:
+
+```bash
+~/.agent-jail/config.json
+```
+
+Example:
+
+```json
+{
+  "delegates": [
+    {
+      "name": "ops",
+      "run_as_user": "delegate-runner",
+      "executor": "/usr/local/bin/delegate-exec",
+      "allowed_tools": ["opsctl", "deployctl"],
+      "strip_tool_name": true
+    }
+  ]
+}
+```
+
+Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
+
 Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
 
-- `marksterctl`
-- `privateinfractl`
+- any tool listed in a configured delegate's `allowed_tools`
 - `peekaboo`
 - `playwright-cli`
 - `screencog`
+- `sudo`
+- any configured delegate executor
 
-Use `agent-jail-cap ops ...` or `agent-jail-cap browser ...` instead.
+Use `agent-jail-cap delegate ...`, `agent-jail-cap ops ...`, or `agent-jail-cap browser ...` instead.
 
 This is especially important for:
 
-- `~/build/markster-ops`
+- local operations repositories
 - browser UI automation tools
 - any skill that depends on API keys or personal account access
+
+The jail also adds a small compatibility layer for agent sessions:
+
+- `python` is shimmed to the resolved host Python executable
+- `~/build` and `~/workspace` inside the jail point back to the real home directories when present
+- on macOS, the active controlling terminal paths are exposed to the `sandbox-exec` profile for interactive TUI startup
 
 ## Known limits
 
 - Absolute-path shell invocation such as `/bin/zsh -lc ...` is not fully blocked by `PATH` interception alone.
+- macOS `sandbox-exec` improves the `/bin/zsh -lc ...` gap by constraining the process tree, but it is deprecated and should be treated as a stopgap.
 - `alcless` on macOS improves separation but does not give the same absolute-path guarantees as a rootfs-based backend.
 - Linux containment depends on local availability of `bubblewrap` or `proot`.
 - Sensitive capabilities are only protected when they are actually proxied rather than mounted or passed through directly.

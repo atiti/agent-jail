@@ -1,14 +1,65 @@
 import unittest
+from unittest import mock
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.ops_proxy import run_ops_proxy
+from agent_jail.delegate_proxy import run_delegate_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
 
 class CapabilityProxyTests(unittest.TestCase):
-    def test_ops_exec_requires_capability_allow(self):
+    def test_delegate_requires_capability_allow(self):
         with self.assertRaises(PermissionError):
-            run_ops_proxy({"ops_exec": False}, ["marksterctl", "status"])
+            run_delegate_proxy({"delegates": []}, {}, "ops", ["opsctl", "status"])
+
+    def test_delegate_builds_run_as_command(self):
+        result = run_delegate_proxy(
+            {"delegates": ["ops"]},
+            {"ops": {"name": "ops", "run_as_user": "delegate-runner", "executor": "/usr/local/bin/delegate-exec", "allowed_tools": ["opsctl"]}},
+            "ops",
+            ["opsctl", "status", "."],
+        )
+        self.assertEqual(result["delegated_command"][:5], ["sudo", "-n", "-u", "delegate-runner", "/usr/local/bin/delegate-exec"])
+
+    def test_delegate_can_strip_tool_name_for_tool_wrapper_executor(self):
+        result = run_delegate_proxy(
+            {"delegates": ["ops"]},
+            {
+                "ops": {
+                    "name": "ops",
+                    "run_as_user": "delegate-runner",
+                    "executor": "/usr/local/bin/delegate-exec",
+                    "allowed_tools": ["opsctl"],
+                    "strip_tool_name": True,
+                }
+            },
+            "ops",
+            ["opsctl", "status", "."],
+        )
+        self.assertEqual(
+            result["delegated_command"],
+            ["sudo", "-n", "-u", "delegate-runner", "/usr/local/bin/delegate-exec", "status", "."],
+        )
+
+    def test_delegate_execute_returns_subprocess_output(self):
+        with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
+            mocked_run.return_value = mock.Mock(returncode=0, stdout="ok\n", stderr="")
+            result = run_delegate_proxy(
+                {"delegates": ["ops"]},
+                {
+                    "ops": {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["opsctl"],
+                        "strip_tool_name": True,
+                        "mode": "execute",
+                    }
+                },
+                "ops",
+                ["opsctl", "status"],
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["stdout"], "ok\n")
+        mocked_run.assert_called_once()
 
     def test_browser_automation_routes_to_host_proxy(self):
         result = run_browser_proxy({"browser_automation": True}, {"tool": "peekaboo", "action": "screenshot"})

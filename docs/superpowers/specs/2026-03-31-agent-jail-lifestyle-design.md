@@ -5,7 +5,7 @@ Status: Proposed
 
 ## Goal
 
-Improve `agent-jail` for Attila's daily use without making the project Markster-specific. The design covers five coordinated slices:
+Improve `agent-jail` for daily use without making the project organization-specific. The design covers five coordinated slices:
 
 1. config-driven read and write policy for `~/workspace` and `~/build`
 2. delegate bridge passthrough that behaves like the original command
@@ -16,7 +16,7 @@ Improve `agent-jail` for Attila's daily use without making the project Markster-
 ## Non-Goals
 
 - rewriting user or model shell commands before execution
-- embedding Markster- or infra-runner-specific behavior in the core policy engine
+- embedding organization-specific delegated tools or runner names in the core policy engine
 - allowing auto-learned rules for privilege escalation, secret access, networking exceptions, or destructive commands
 - replacing deterministic policy evaluation with LLM decisions at runtime
 
@@ -98,7 +98,7 @@ Add a local-policy layer in `~/.agent-jail/config.json`:
 CLI behavior:
 
 ```text
-[delegate:ops] sudo -n -u infra-runner /usr/local/bin/infra-runner-exec --namespace markster status .
+[delegate:ops] sudo -n -u delegate-runner /usr/local/bin/delegate-exec status .
 <delegated stdout/stderr follows unchanged>
 ```
 
@@ -300,7 +300,7 @@ Add tests for each slice:
 Also add end-to-end tests for:
 
 - reading across `~/build` while blocking configured secret paths
-- delegated `marksterctl` or `privateinfractl` style commands preserving output shape
+- delegated `opsctl` or `deployctl` style commands preserving output shape
 - chained shell commands denied when one segment is unsafe
 
 ## Risks

@@ -15,6 +15,10 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog="agent-jail-cap")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    delegate = sub.add_parser("delegate")
+    delegate.add_argument("name")
+    delegate.add_argument("argv", nargs=argparse.REMAINDER)
+
     ops = sub.add_parser("ops")
     ops.add_argument("argv", nargs=argparse.REMAINDER)
 
@@ -46,8 +50,10 @@ def _request(payload):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.command == "delegate":
+        return _request({"type": "capability", "name": "delegate", "payload": {"name": args.name, "command": args.argv}})
     if args.command == "ops":
-        return _request({"type": "capability", "name": "ops_exec", "payload": {"command": args.argv}})
+        return _request({"type": "capability", "name": "delegate", "payload": {"name": "ops", "command": args.argv}})
     if args.command == "skill":
         return _request(
             {

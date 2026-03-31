@@ -20,7 +20,7 @@ class IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wrapper_dir = os.path.join(tmp, "bin")
             write_wrappers(wrapper_dir, ["python", "python3", "node", "git"])
-            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "python")))
+            self.assertTrue(os.path.islink(os.path.join(wrapper_dir, "python")))
             self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "python3")))
             self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "node")))
             self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "git")))
@@ -60,24 +60,34 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("REAL-GIT status", proc.stdout)
 
-    def test_wrapper_denies_direct_marksterctl_with_guidance(self):
+    def test_wrapper_denies_direct_delegate_tool_with_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
             sock_path = os.path.join(tmp, "broker.sock")
             wrapper_dir = os.path.join(tmp, "bin")
             real_dir = os.path.join(tmp, "real")
             os.mkdir(real_dir)
-            tool_path = os.path.join(real_dir, "marksterctl")
+            tool_path = os.path.join(real_dir, "opsctl")
             with open(tool_path, "w", encoding="utf-8") as handle:
                 handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
             os.chmod(tool_path, 0o755)
 
             store = PolicyStore(os.path.join(tmp, "policy.json"))
-            server = BrokerServer(sock_path, store)
+            server = BrokerServer(
+                sock_path,
+                store,
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["opsctl"],
+                    }
+                ],
+            )
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             self.addCleanup(server.close)
 
-            write_wrappers(wrapper_dir, ["marksterctl"])
+            write_wrappers(wrapper_dir, ["opsctl"])
             env = os.environ.copy()
             env.update(
                 {
@@ -87,13 +97,13 @@ class IntegrationTests(unittest.TestCase):
                 }
             )
             proc = subprocess.run(
-                ["marksterctl", "status"],
+                ["opsctl", "status"],
                 text=True,
                 capture_output=True,
                 env=env,
             )
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("agent-jail-cap ops", proc.stderr)
+        self.assertIn("agent-jail-cap delegate ops", proc.stderr)
 
     def test_wrapper_denies_remote_exec_shell(self):
         with tempfile.TemporaryDirectory() as tmp:

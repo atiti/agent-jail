@@ -151,7 +151,7 @@ Typical examples:
 
 - `~/workspace`
 - `~/build/agent-jail`
-- `~/build/markster-ops`
+- `~/build/example-ops`
 
 #### Skills And Secrets
 
@@ -167,11 +167,11 @@ The sandbox should not receive raw secret environment variables by default.
 Separate source access from live authority.
 
 - direct:
-  - reading and editing `~/build/markster-ops`
+  - reading and editing `~/build/example-ops`
   - local analysis of scripts and configs
 - proxied:
-  - `marksterctl exec`
-  - `privateinfractl exec`
+  - `opsctl exec`
+  - `deployctl exec`
   - logs, status, deploys, and other control-plane commands
 
 This keeps operational authority mediated and auditable.
@@ -246,7 +246,7 @@ Example:
   "projects": [
     "~/workspace",
     "~/build/agent-jail",
-    "~/build/markster-ops"
+    "~/build/example-ops"
   ],
   "capabilities": {
     "skills_proxy": true,
@@ -271,7 +271,7 @@ Normalization converts raw argv into a small intent object:
   "action": "push",
   "target": "origin/main",
   "flags": ["force"],
-  "capability": "workspace_rw:/Users/attilasukosd/build/agent-jail"
+  "capability": "workspace_rw:/path/to/workspace/agent-jail"
 }
 ```
 
