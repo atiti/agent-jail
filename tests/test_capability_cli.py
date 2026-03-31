@@ -86,3 +86,41 @@ class CapabilityCLITests(unittest.TestCase):
             proc = self.run_cap("ops", "opsctl", "status", env=env)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("kill switch", proc.stderr.lower())
+
+    def test_delegate_execute_streams_output_and_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            script_path = os.path.join(tmp, "delegate-exec")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "#!/bin/sh\n"
+                    "echo delegated-out\n"
+                    "echo delegated-err >&2\n"
+                    "exit 7\n"
+                )
+            os.chmod(script_path, 0o755)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(
+                sock_path,
+                store,
+                capabilities={"delegate": True, "delegates": ["ops"]},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": script_path,
+                        "allowed_tools": ["opsctl"],
+                        "strip_tool_name": True,
+                        "mode": "execute",
+                    }
+                ],
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+            env = os.environ.copy()
+            env["AGENT_JAIL_SOCKET"] = sock_path
+            proc = self.run_cap("delegate", "ops", "opsctl", "status", env=env)
+        self.assertEqual(proc.returncode, 7)
+        self.assertIn("delegated-out", proc.stdout)
+        self.assertIn("[delegate:ops]", proc.stderr)
+        self.assertIn("delegated-err", proc.stderr)

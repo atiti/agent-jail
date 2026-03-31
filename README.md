@@ -66,6 +66,12 @@ python3 agent-jail run --allow-browser agent-jail-cap browser peekaboo screensho
 python3 agent-jail run agent-jail-cap skill gmail search
 ```
 
+When a configured delegate runs in `mode: "execute"`, `agent-jail-cap delegate ...` behaves like a normal process:
+
+- it prints a one-line delegate header to stderr
+- it streams delegated stdout and stderr directly
+- it exits with the delegated command's real return code
+
 Run with the built-in proxy enabled:
 
 ```bash

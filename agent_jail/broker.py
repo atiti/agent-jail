@@ -7,7 +7,7 @@ import threading
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.delegate_proxy import run_delegate_proxy
+from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
 BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
@@ -150,8 +150,10 @@ class _Handler(StreamRequestHandler):
         if not line:
             return
         request = json.loads(line.decode("utf-8"))
-        response = self.server.broker.handle(request)
-        self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+        response = self.server.broker.handle(request, self.wfile)
+        if response is not None:
+            self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+            self.wfile.flush()
 
 
 class BrokerServer:
@@ -180,10 +182,14 @@ class BrokerServer:
         if os.path.exists(self.path):
             os.unlink(self.path)
 
-    def handle(self, request):
+    def _write_frame(self, wfile, payload):
+        wfile.write((json.dumps(payload) + "\n").encode("utf-8"))
+        wfile.flush()
+
+    def handle(self, request, wfile=None):
         req_type = request.get("type")
         if req_type == "capability":
-            return self._handle_capability(request)
+            return self._handle_capability(request, wfile)
         if req_type != "exec":
             return {"decision": "deny", "reason": "unsupported request"}
         argv = request["argv"]
@@ -212,7 +218,7 @@ class BrokerServer:
         self._log("ALLOW", raw, verdict.get("category"))
         return {"decision": "allow", "reason": verdict["reason"]}
 
-    def _handle_capability(self, request):
+    def _handle_capability(self, request, wfile=None):
         name = request.get("name")
         matched = self.policy_store.match({"name": name}, kind="capability")
         allowed = bool(self.capabilities.get(name))
@@ -226,7 +232,20 @@ class BrokerServer:
             return {"decision": "deny", "reason": f"{name} capability denied"}
         if name == "delegate":
             payload = request.get("payload", {})
-            result = run_delegate_proxy(self.capabilities, self.delegates, payload.get("name", ""), payload.get("command", []))
+            delegate_name = payload.get("name", "")
+            delegate = self.delegates.get(delegate_name)
+            if delegate and delegate.get("mode") == "execute" and wfile is not None:
+                self._log("ALLOW", f"capability {name}", "capability")
+                self._write_frame(wfile, {"decision": "allow", "reason": "capability allowed", "stream": True})
+                stream_delegate_proxy(
+                    self.capabilities,
+                    self.delegates,
+                    delegate_name,
+                    payload.get("command", []),
+                    lambda frame: self._write_frame(wfile, frame),
+                )
+                return None
+            result = run_delegate_proxy(self.capabilities, self.delegates, delegate_name, payload.get("command", []))
         elif name == "browser_automation":
             result = run_browser_proxy(self.capabilities, request.get("payload", {}))
         elif name == "skills_proxy":
@@ -254,3 +273,22 @@ def broker_request(sock_path, payload):
                 break
             data += chunk
     return json.loads(data.decode("utf-8"))
+
+
+def broker_exchange(sock_path, payload):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(sock_path)
+        client.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+        buffer = b""
+        while True:
+            while b"\n" not in buffer:
+                chunk = client.recv(65536)
+                if not chunk:
+                    if buffer:
+                        yield json.loads(buffer.decode("utf-8"))
+                    return
+                buffer += chunk
+            line, buffer = buffer.split(b"\n", 1)
+            if not line:
+                continue
+            yield json.loads(line.decode("utf-8"))
