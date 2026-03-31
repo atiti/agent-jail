@@ -60,6 +60,41 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("REAL-GIT status", proc.stdout)
 
+    def test_wrapper_denies_direct_marksterctl_with_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            wrapper_dir = os.path.join(tmp, "bin")
+            real_dir = os.path.join(tmp, "real")
+            os.mkdir(real_dir)
+            tool_path = os.path.join(real_dir, "marksterctl")
+            with open(tool_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(tool_path, 0o755)
+
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(sock_path, store)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+
+            write_wrappers(wrapper_dir, ["marksterctl"])
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_SOCKET": sock_path,
+                    "AGENT_JAIL_ORIG_PATH": real_dir,
+                    "PATH": wrapper_dir,
+                }
+            )
+            proc = subprocess.run(
+                ["marksterctl", "status"],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("agent-jail-cap ops", proc.stderr)
+
     def test_wrapper_denies_remote_exec_shell(self):
         with tempfile.TemporaryDirectory() as tmp:
             sock_path = os.path.join(tmp, "broker.sock")

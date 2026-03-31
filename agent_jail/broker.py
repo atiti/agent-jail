@@ -10,6 +10,9 @@ from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.ops_proxy import run_ops_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
+OPS_TOOLS = {"marksterctl", "privateinfractl"}
+BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
+
 
 def normalize(argv):
     tool = os.path.basename(argv[0]) if argv else ""
@@ -41,6 +44,10 @@ def classify(intent, argv):
     raw = " ".join(argv)
     tool = intent["tool"]
     action = intent["action"]
+    if tool in OPS_TOOLS:
+        return {"risk": "high", "reason": f"direct ops tools are blocked; use agent-jail-cap ops {' '.join(argv)}"}
+    if tool in BROWSER_TOOLS:
+        return {"risk": "high", "reason": f"direct browser tools are blocked; use agent-jail-cap browser {tool} {action}"}
     if tool in {"sh", "bash", "zsh"} and action == "command-string":
         script = intent.get("target") or ""
         if "curl " in script and "|" in script and any(shell in script for shell in ("bash", "sh")):
@@ -108,6 +115,9 @@ class BrokerServer:
         verdict = classify(intent, argv)
         risk = verdict["risk"]
         if risk == "critical":
+            self._log("DENY", raw)
+            return {"decision": "deny", "reason": verdict["reason"]}
+        if intent["tool"] in OPS_TOOLS or intent["tool"] in BROWSER_TOOLS:
             self._log("DENY", raw)
             return {"decision": "deny", "reason": verdict["reason"]}
         if risk == "high":

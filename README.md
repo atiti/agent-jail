@@ -156,6 +156,16 @@ The first mediated command surface is:
 - `agent-jail-cap skill <name> <operation>`
 - `agent-jail-cap browser <tool> <action>`
 
+Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
+
+- `marksterctl`
+- `privateinfractl`
+- `peekaboo`
+- `playwright-cli`
+- `screencog`
+
+Use `agent-jail-cap ops ...` or `agent-jail-cap browser ...` instead.
+
 This is especially important for:
 
 - `~/build/markster-ops`
