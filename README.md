@@ -56,6 +56,14 @@ python3 agent-jail run \
   codex --yolo
 ```
 
+Use the mediated capability command surface inside a session:
+
+```bash
+python3 agent-jail run --allow-ops agent-jail-cap ops marksterctl status
+python3 agent-jail run --allow-browser agent-jail-cap browser peekaboo screenshot
+python3 agent-jail run agent-jail-cap skill gmail search
+```
+
 Run with the built-in proxy enabled:
 
 ```bash
@@ -84,6 +92,8 @@ The session also resolves capabilities:
 - `ops_exec` is opt-in
 - `browser_automation` is opt-in
 - direct secret env passthrough is off by default
+
+Inside the session, proxied capabilities are exposed through `agent-jail-cap` instead of handing the agent raw host tools.
 
 Rules live in:
 
@@ -139,6 +149,12 @@ The intended pattern is:
 - proxy secret-bearing skills instead of exposing raw env vars
 - proxy production operations instead of giving the sandbox direct credentials
 - proxy browser automation from the host side
+
+The first mediated command surface is:
+
+- `agent-jail-cap ops ...`
+- `agent-jail-cap skill <name> <operation>`
+- `agent-jail-cap browser <tool> <action>`
 
 This is especially important for:
 

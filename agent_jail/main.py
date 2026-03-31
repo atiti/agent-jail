@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,7 @@ def run(argv=None):
         raise SystemExit(2)
     home = ensure_home()
     with tempfile.TemporaryDirectory(prefix="agent-jail-") as tmp:
+        source_root = os.path.dirname(os.path.dirname(__file__))
         wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
         sock_path = os.path.join(tmp, "broker.sock")
         store = PolicyStore(os.path.join(home, "policy.json"))
@@ -60,6 +62,10 @@ def run(argv=None):
         broker_thread = threading.Thread(target=broker.serve_forever, daemon=True)
         broker_thread.start()
         write_wrappers(wrapper_dir, source_path=os.environ.get("PATH", ""), python_executable=sys.executable)
+        cap_target = os.path.join(wrapper_dir, "agent-jail-cap")
+        source_cap = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent-jail-cap")
+        shutil.copy2(source_cap, cap_target)
+        os.chmod(cap_target, 0o755)
         env = os.environ.copy()
         env.update(
             {
@@ -68,9 +74,11 @@ def run(argv=None):
                 "AGENT_JAIL_ORIG_PATH": env.get("PATH", ""),
                 "AGENT_JAIL_PYTHON": sys.executable,
                 "AGENT_JAIL_WRAPPER_DIR": wrapper_dir,
+                "AGENT_JAIL_SOURCE_ROOT": source_root,
                 "AGENT_JAIL_CAPABILITIES": json.dumps(session["capabilities"], sort_keys=True),
                 "HOME": home,
                 "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
+                "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),
             }
         )
         proxy_server = None
