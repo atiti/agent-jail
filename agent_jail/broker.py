@@ -404,7 +404,19 @@ class BrokerServer:
                 jit=True,
                 confidence=jit.get("confidence"),
             )
-            return {"decision": "deny", "reason": f"jit-review-required: {jit.get('reason', 'unknown low-impact command')}"}
+            pending = self.policy_store.add_pending_review(
+                {
+                    "kind": "exec",
+                    "tool": intent["tool"],
+                    "action": intent["action"],
+                    "raw": raw,
+                    "template": template,
+                    "reason": jit.get("reason", "unknown low-impact command"),
+                    "confidence": jit.get("confidence"),
+                    "rule": jit.get("rule"),
+                }
+            )
+            return {"decision": "deny", "reason": f"jit-review-required[{pending['id']}]: {jit.get('reason', 'unknown low-impact command')}"}
         if risk == "high":
             self.policy_store.learn(intent)
             self._log(

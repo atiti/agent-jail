@@ -62,3 +62,4 @@ class BrokerTests(unittest.TestCase):
             result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
         self.assertEqual(result["decision"], "deny")
         self.assertIn("jit-review-required", result["reason"])
+        self.assertEqual(len(store.pending_reviews), 1)

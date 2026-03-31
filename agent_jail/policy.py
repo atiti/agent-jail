@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from pathlib import Path
 
 
@@ -31,6 +32,10 @@ class PolicyStore:
     @property
     def suggestions(self):
         return self.data.setdefault("suggestions", [])
+
+    @property
+    def pending_reviews(self):
+        return self.data.setdefault("pending_reviews", [])
 
     def match(self, subject, kind="exec"):
         for rule in self.rules:
@@ -99,3 +104,24 @@ class PolicyStore:
     def replace_suggestions(self, suggestions):
         self.data["suggestions"] = list(suggestions)
         self.save()
+
+    def add_pending_review(self, review):
+        item = dict(review)
+        item.setdefault("id", str(uuid.uuid4()))
+        self.pending_reviews.append(item)
+        self.save()
+        return item
+
+    def get_pending_review(self, review_id):
+        for review in self.pending_reviews:
+            if review.get("id") == review_id:
+                return review
+        return None
+
+    def remove_pending_review(self, review_id):
+        before = len(self.pending_reviews)
+        self.data["pending_reviews"] = [review for review in self.pending_reviews if review.get("id") != review_id]
+        changed = len(self.pending_reviews) != before
+        if changed:
+            self.save()
+        return changed

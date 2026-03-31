@@ -154,6 +154,14 @@ def parse_args(argv=None):
     suggest.add_argument("--apply-low-risk", action="store_true")
     suggest.add_argument("--limit", type=int, default=500)
     suggest.add_argument("--log", action="append", default=[])
+    review = sub.add_parser("review")
+    review_sub = review.add_subparsers(dest="review_command", required=True)
+    review_list = review_sub.add_parser("list")
+    review_list.add_argument("--json", action="store_true")
+    review_approve = review_sub.add_parser("approve")
+    review_approve.add_argument("review_id")
+    review_reject = review_sub.add_parser("reject")
+    review_reject.add_argument("review_id")
     return parser, parser.parse_args(argv)
 
 
@@ -236,10 +244,60 @@ def suggest_rules(args):
     return 0
 
 
+def review_rule_from_pending(review):
+    rule = review.get("rule")
+    if rule:
+        return rule
+    return {
+        "kind": "exec",
+        "tool": review["tool"],
+        "action": review["action"],
+        "allow": True,
+        "constraints": {},
+        "metadata": {
+            "promotion_state": "user-approved",
+            "source": "review",
+            "template": review.get("template", ""),
+            "rationale": review.get("reason", ""),
+        },
+    }
+
+
+def handle_review(args):
+    home = ensure_home()
+    store = PolicyStore(os.path.join(home, "policy.json"))
+    if args.review_command == "list":
+        reviews = store.pending_reviews
+        if args.json:
+            print(json.dumps(reviews, indent=2, sort_keys=True))
+        else:
+            print(f"pending: {len(reviews)}")
+            for review in reviews:
+                print(f"- {review['id']} | {review.get('tool')} {review.get('action')} | {review.get('raw')}")
+        return 0
+    review = store.get_pending_review(args.review_id)
+    if not review:
+        print(f"agent-jail review: unknown id {args.review_id}", file=sys.stderr)
+        return 2
+    if args.review_command == "approve":
+        rule = review_rule_from_pending(review)
+        metadata = dict(rule.get("metadata", {}))
+        metadata["promotion_state"] = "user-approved"
+        applied = store.add_rule({**rule, "metadata": metadata})
+        store.remove_pending_review(args.review_id)
+        print("approved" if applied else "already-approved")
+        return 0
+    store.remove_pending_review(args.review_id)
+    print("rejected")
+    return 0
+
+
 def run(argv=None):
     parser, args = parse_args(argv)
     if args.command == "monitor":
         return monitor_events(args)
+    if args.command == "review":
+        return handle_review(args)
     if args.command == "suggest-rules":
         return suggest_rules(args)
     if args.command != "run" or not args.target:

@@ -101,6 +101,14 @@ python3 agent-jail suggest-rules --apply-low-risk
 python3 agent-jail suggest-rules --json
 ```
 
+Handle pending JIT reviews:
+
+```bash
+python3 agent-jail review list
+python3 agent-jail review approve <id>
+python3 agent-jail review reject <id>
+```
+
 ## How it works
 
 1. `agent-jail` creates a temporary session directory.
@@ -267,6 +275,8 @@ You can also enable a narrow JIT rule lane for unknown low-impact commands:
 ```
 
 This JIT path only applies to commands that currently fall through to low-risk `general`. Known read-only tools and deterministic heuristics still resolve locally. If the JIT engine is confident, it can auto-apply a generalized low-risk rule immediately. If it is unsure, the command is denied with a review-required reason instead of being silently widened.
+
+Those review-required cases are written into `policy.json` as pending reviews. Approving one will install the proposed rule so the next matching command is allowed without another prompt.
 
 Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
 

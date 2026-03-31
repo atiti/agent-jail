@@ -221,6 +221,90 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("suggestions: 1", proc.stdout)
 
+    def test_review_list_reads_pending_reviews(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            policy_path = os.path.join(tmp, "policy.json")
+            with open(policy_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "rules": [],
+                        "pending_reviews": [
+                            {
+                                "id": "review-1",
+                                "tool": "tree",
+                                "action": "exec",
+                                "raw": "tree -L 2",
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            proc = self.run_cli("review", "list", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("review-1", proc.stdout)
+
+    def test_review_approve_adds_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            policy_path = os.path.join(tmp, "policy.json")
+            with open(policy_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "rules": [],
+                        "pending_reviews": [
+                            {
+                                "id": "review-1",
+                                "tool": "tree",
+                                "action": "exec",
+                                "raw": "tree -L 2",
+                                "rule": {
+                                    "kind": "exec",
+                                    "tool": "tree",
+                                    "action": "exec",
+                                    "allow": True,
+                                    "constraints": {},
+                                },
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            proc = self.run_cli("review", "approve", "review-1", env=env)
+            with open(policy_path, encoding="utf-8") as handle:
+                policy = json.load(handle)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(policy["pending_reviews"], [])
+        self.assertEqual(policy["rules"][0]["tool"], "tree")
+
+    def test_review_reject_removes_pending_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            policy_path = os.path.join(tmp, "policy.json")
+            with open(policy_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "rules": [],
+                        "pending_reviews": [
+                            {
+                                "id": "review-1",
+                                "tool": "tree",
+                                "action": "exec",
+                                "raw": "tree -L 2",
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            proc = self.run_cli("review", "reject", "review-1", env=env)
+            with open(policy_path, encoding="utf-8") as handle:
+                policy = json.load(handle)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(policy["pending_reviews"], [])
+
     def test_run_stops_process_when_kill_switch_appears(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()

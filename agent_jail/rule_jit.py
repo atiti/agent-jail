@@ -147,7 +147,7 @@ class JITRuleEngine:
             "reason": parsed.get("reason", ""),
             "source": "azure_openai_jit",
         }
-        if decision == "allow":
+        if candidate.get("tool") == intent.get("tool") and candidate.get("action") == intent.get("action"):
             result["rule"] = {
                 "kind": "exec",
                 "tool": candidate["tool"],
