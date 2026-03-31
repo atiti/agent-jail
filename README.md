@@ -85,6 +85,14 @@ Run a quick smoke command:
 python3 agent-jail run python3 -c "print('ok')"
 ```
 
+Inspect agent-jail events without polluting the agent TUI:
+
+```bash
+python3 agent-jail monitor
+python3 agent-jail monitor --follow
+python3 agent-jail monitor --json
+```
+
 ## How it works
 
 1. `agent-jail` creates a temporary session directory.
@@ -92,6 +100,8 @@ python3 agent-jail run python3 -c "print('ok')"
 3. Each wrapped command asks the local broker for a decision before execution.
 4. The broker normalizes the command, classifies risk, checks learned rules, and returns a decision.
 5. Approved commands are executed via the real binary from the original `PATH`.
+
+Broker decisions are recorded as structured JSONL events under `~/.agent-jail/events/`. The latest session also publishes its event log and optional live socket in `~/.agent-jail/runtime.json`, which powers `agent-jail monitor`.
 
 The session also resolves capabilities:
 
@@ -122,6 +132,8 @@ You can override the state directory with:
 ```bash
 AGENT_JAIL_HOME=/some/path python3 agent-jail run codex --yolo
 ```
+
+Set `AGENT_JAIL_LOG_STDERR=1` if you want the broker to keep mirroring events to stderr. By default, event output is written to the session event log instead, which keeps interactive TUIs clean.
 
 ## Current policy behavior
 

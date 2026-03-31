@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -180,6 +181,31 @@ class CLITests(unittest.TestCase):
             proc = self.run_cli("run", "--kill-switch", kill_switch, sys.executable, "-c", "print('nope')", env=env)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("kill switch", proc.stderr.lower())
+
+    def test_monitor_reads_runtime_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            events_dir = os.path.join(tmp, "events")
+            os.makedirs(events_dir)
+            log_path = os.path.join(events_dir, "session.jsonl")
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"read-only","raw":"git status"}\n')
+            runtime_path = os.path.join(tmp, "runtime.json")
+            with open(runtime_path, "w", encoding="utf-8") as handle:
+                json.dump({"events_log": log_path, "events_socket": None}, handle)
+            proc = self.run_cli("monitor", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("[ALLOW][read-only] git status", proc.stdout)
+
+    def test_monitor_json_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "events.jsonl")
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"deny","category":"policy","raw":"opsctl status"}\n')
+            proc = self.run_cli("monitor", "--json", "--log", log_path)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('"action": "deny"', proc.stdout)
 
     def test_run_stops_process_when_kill_switch_appears(self):
         with tempfile.TemporaryDirectory() as tmp:

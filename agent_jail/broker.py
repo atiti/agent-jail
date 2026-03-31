@@ -8,6 +8,7 @@ from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
+from agent_jail.events import render_event
 from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
@@ -226,12 +227,14 @@ class _Handler(StreamRequestHandler):
 
 
 class BrokerServer:
-    def __init__(self, path, policy_store, capabilities=None, delegates=None):
+    def __init__(self, path, policy_store, capabilities=None, delegates=None, event_sink=None, log_stderr=False):
         self.path = path
         self.policy_store = policy_store
         self.capabilities = capabilities or {}
         self.delegates = {item["name"]: item for item in (delegates or []) if item.get("name")}
         self.server = None
+        self.event_sink = event_sink
+        self.log_stderr = log_stderr
 
     def serve_forever(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -326,10 +329,11 @@ class BrokerServer:
         return {"decision": "allow", "reason": "capability allowed", "result": result}
 
     def _log(self, tag, raw, category=None):
-        if category:
-            print(f"[{tag}][{category}] {raw}", file=sys.stderr, flush=True)
-        else:
-            print(f"[{tag}] {raw}", file=sys.stderr, flush=True)
+        event = {"action": tag.lower(), "category": category, "raw": raw}
+        if self.event_sink:
+            self.event_sink.emit(event)
+        if self.log_stderr:
+            print(render_event(event), file=sys.stderr, flush=True)
 
 
 def broker_request(sock_path, payload):

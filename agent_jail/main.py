@@ -14,6 +14,7 @@ from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
 from agent_jail.capabilities import resolve_session_capabilities
 from agent_jail.config import load_config
+from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_proxy
 from agent_jail.wrappers import write_wrappers
@@ -142,11 +143,69 @@ def parse_args(argv=None):
     run.add_argument("--mount-claude-home", dest="mount_claude_home", action="store_true", default=True)
     run.add_argument("--no-mount-claude-home", dest="mount_claude_home", action="store_false")
     run.add_argument("target", nargs=argparse.REMAINDER)
+    monitor = sub.add_parser("monitor")
+    monitor.add_argument("--follow", action="store_true")
+    monitor.add_argument("--json", action="store_true")
+    monitor.add_argument("--log")
+    monitor.add_argument("--socket")
     return parser, parser.parse_args(argv)
+
+
+def runtime_state_path(home):
+    return os.path.join(home, "runtime.json")
+
+
+def _print_event(event, json_output=False):
+    if json_output:
+        print(json.dumps(event, sort_keys=True))
+    else:
+        print(render_event(event))
+
+
+def monitor_events(args):
+    home = ensure_home()
+    state = {}
+    if args.log or args.socket:
+        log_path = os.path.abspath(os.path.expanduser(args.log)) if args.log else None
+        socket_path = os.path.abspath(os.path.expanduser(args.socket)) if args.socket else None
+    else:
+        try:
+            state = load_runtime_state(runtime_state_path(home))
+        except FileNotFoundError:
+            print("agent-jail monitor: no runtime state found", file=sys.stderr)
+            return 2
+        log_path = state.get("events_log")
+        socket_path = state.get("events_socket")
+    if not log_path:
+        print("agent-jail monitor: no event log configured", file=sys.stderr)
+        return 2
+    if os.path.exists(log_path):
+        with open(log_path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                _print_event(json.loads(line), json_output=args.json)
+    if not args.follow:
+        return 0
+    if socket_path and os.path.exists(socket_path):
+        for event in stream_event_socket(socket_path):
+            _print_event(event, json_output=args.json)
+        return 0
+    with open(log_path, encoding="utf-8") as handle:
+        handle.seek(0, os.SEEK_END)
+        while True:
+            line = handle.readline()
+            if line:
+                _print_event(json.loads(line), json_output=args.json)
+                continue
+            time.sleep(0.1)
 
 
 def run(argv=None):
     parser, args = parse_args(argv)
+    if args.command == "monitor":
+        return monitor_events(args)
     if args.command != "run" or not args.target:
         parser.print_usage(sys.stderr)
         raise SystemExit(2)
@@ -162,6 +221,12 @@ def run(argv=None):
         python_executable = resolve_python()
         wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
         sock_path = os.path.join(tmp, "broker.sock")
+        event_socket_path = os.path.join(tmp, "events.sock")
+        event_log_path = os.path.join(
+            home,
+            "events",
+            f"session-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}.jsonl",
+        )
         store = PolicyStore(os.path.join(home, "policy.json"))
         delegate_names = set(args.allow_delegate or [])
         if args.allow_ops:
@@ -177,7 +242,27 @@ def run(argv=None):
             browser_automation=args.allow_browser,
             direct_secret_env=args.direct_secret_env,
         )
-        broker = BrokerServer(sock_path, store, capabilities=session["capabilities"], delegates=config.get("delegates", []))
+        event_sink = EventSink(event_log_path, socket_path=event_socket_path)
+        event_sink.start()
+        write_runtime_state(
+            runtime_state_path(home),
+            {
+                "active": True,
+                "cwd": os.getcwd(),
+                "events_log": event_log_path,
+                "events_socket": event_socket_path,
+                "pid": os.getpid(),
+                "started_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        broker = BrokerServer(
+            sock_path,
+            store,
+            capabilities=session["capabilities"],
+            delegates=config.get("delegates", []),
+            event_sink=event_sink,
+            log_stderr=bool(os.environ.get("AGENT_JAIL_LOG_STDERR")),
+        )
         broker_thread = threading.Thread(target=broker.serve_forever, daemon=True)
         broker_thread.start()
         write_wrappers(wrapper_dir, source_path=os.environ.get("PATH", ""), python_executable=python_executable)
@@ -251,6 +336,18 @@ def run(argv=None):
                 proxy_server.shutdown()
                 proxy_server.server_close()
             broker.close()
+            event_sink.close()
+            write_runtime_state(
+                runtime_state_path(home),
+                {
+                    "active": False,
+                    "cwd": os.getcwd(),
+                    "events_log": event_log_path,
+                    "events_socket": None,
+                    "ended_at": datetime.now(UTC).isoformat(),
+                    "pid": os.getpid(),
+                },
+            )
 
 
 def main(argv=None):
