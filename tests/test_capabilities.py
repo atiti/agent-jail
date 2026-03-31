@@ -28,3 +28,32 @@ class CapabilityTests(unittest.TestCase):
         result = resolve_session_capabilities(projects=[], allow_write=[])
         self.assertTrue(result["capabilities"]["skills_proxy"])
         self.assertFalse(result["capabilities"]["direct_secret_env"])
+
+    def test_configured_filesystem_roots_merge_with_projects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = os.path.join(tmp, "workspace")
+            project = os.path.join(tmp, "build", "agent-jail")
+            docs_root = os.path.join(tmp, "build")
+            os.makedirs(workspace)
+            os.makedirs(project)
+            result = resolve_session_capabilities(
+                projects=[project],
+                allow_write=[project],
+                read_only_roots=[docs_root],
+                write_roots=[workspace],
+            )
+        mounts = {item["path"]: item["mode"] for item in result["mounts"]}
+        self.assertEqual(mounts[project], "rw")
+        self.assertEqual(mounts[docs_root], "ro")
+        self.assertNotIn(workspace, mounts)
+
+    def test_configured_write_roots_make_matching_project_writable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = os.path.join(tmp, "workspace")
+            os.makedirs(workspace)
+            result = resolve_session_capabilities(
+                projects=[workspace],
+                allow_write=[],
+                write_roots=[workspace],
+            )
+        self.assertEqual(result["mounts"][0]["mode"], "rw")

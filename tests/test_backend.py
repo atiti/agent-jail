@@ -42,6 +42,7 @@ class BackendTests(unittest.TestCase):
             "TMPDIR": "/private/tmp/test",
             "AGENT_JAIL_HOME": "/Users/example/.agent-jail",
             "AGENT_JAIL_SESSION_DIR": "/tmp/agent-jail-123",
+            "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(["/Users/example/build/**/.env", "/Users/example/build/**/secrets/**"]),
             "AGENT_JAIL_TTY_PATHS": json.dumps(["/dev/tty", "/dev/ttys001", "/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/fd", "/dev/null"]),
             "AGENT_JAIL_MOUNTS": json.dumps(
                 [
@@ -66,6 +67,11 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(subpath "/dev/fd")', profile)
         self.assertIn('(subpath "/dev/null")', profile)
         self.assertIn("(allow network*)", profile)
+        self.assertIn('(deny file-read*', profile)
+        self.assertIn('/Users/example/build/.*/', profile)
+        self.assertIn('.env', profile)
+        self.assertIn('/Users/example/build/', profile)
+        self.assertIn('/secrets/', profile)
         self.assertIn('(allow file-ioctl', profile)
         self.assertIn('(regex #"^/dev/tty.*")', profile)
         self.assertIn('(literal "/usr/bin/ssh")', profile)

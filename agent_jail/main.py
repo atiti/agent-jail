@@ -169,6 +169,8 @@ def run(argv=None):
         session = resolve_session_capabilities(
             projects=args.project or [os.getcwd()],
             allow_write=args.allow_write or [os.getcwd()],
+            read_only_roots=config.get("filesystem", {}).get("read_only_roots", []),
+            write_roots=config.get("filesystem", {}).get("write_roots", []),
             skills_proxy=True,
             ops_exec=args.allow_ops,
             delegates=sorted(delegate_names),
@@ -201,6 +203,9 @@ def run(argv=None):
                 "AGENT_JAIL_SOURCE_ROOT": source_root,
                 "AGENT_JAIL_CAPABILITIES": json.dumps(session["capabilities"], sort_keys=True),
                 "AGENT_JAIL_AUTH_MOUNTS": json.dumps(auth_mounts, sort_keys=True),
+                "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(
+                    config.get("filesystem", {}).get("deny_read_patterns", []), sort_keys=True
+                ),
                 "HOME": home,
                 "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
                 "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),

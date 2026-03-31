@@ -13,6 +13,7 @@
 - Replaced the hardcoded ops bridge with generic config-driven delegates (`run_as_user`, `executor`, `allowed_tools`) and added `agent-jail-cap delegate`.
 - Replaced repo-specific mediated-tool names in the broker, docs, and tests with delegate-derived policy and generic public examples.
 - Blocked direct execution of sensitive ops and browser tools in favor of `agent-jail-cap`.
+- Added config-driven filesystem policy loading for `read_only_roots`, `write_roots`, and `deny_read_patterns`, and render deny-read patterns into the macOS sandbox profile.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.

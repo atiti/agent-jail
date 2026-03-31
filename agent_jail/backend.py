@@ -1,4 +1,5 @@
 import json
+import fnmatch
 import os
 import platform
 import shutil
@@ -80,8 +81,20 @@ def _writable_paths(cwd, env):
     return sorted(path for path in writable if path)
 
 
+def _deny_read_patterns(env):
+    return [item for item in _load_json_list(env, "AGENT_JAIL_DENY_READ_PATTERNS") if isinstance(item, str) and item]
+
+
+def _pattern_to_regex(pattern):
+    translated = fnmatch.translate(pattern)
+    if translated.endswith("\\Z"):
+        translated = translated[:-2]
+    return translated
+
+
 def build_sandbox_exec_profile(cwd, env):
     writable = _writable_paths(cwd, env)
+    deny_patterns = _deny_read_patterns(env)
     lines = [
         "(version 1)",
         '(import "system.sb")',
@@ -100,6 +113,14 @@ def build_sandbox_exec_profile(cwd, env):
         [
         "(allow signal (target self))",
         "(allow sysctl-read)",
+        "(deny file-read*",
+        ]
+    )
+    for pattern in deny_patterns:
+        lines.append(f'    (regex #"{_pattern_to_regex(pattern)}")')
+    lines.extend(
+        [
+        ")",
         "(allow file-read*)",
         "(allow file-ioctl",
         f'    (regex #"{DARWIN_TTY_IOCTL_REGEX}")',

@@ -177,6 +177,15 @@ Example:
 
 ```json
 {
+  "filesystem": {
+    "read_only_roots": ["~/build"],
+    "write_roots": ["~/workspace"],
+    "deny_read_patterns": [
+      "~/build/**/.env",
+      "~/build/**/.env.*",
+      "~/build/**/secrets/**"
+    ]
+  },
   "delegates": [
     {
       "name": "ops",
@@ -190,6 +199,8 @@ Example:
 ```
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
+
+The optional `filesystem` section lets you widen read-only visibility and add extra writable roots without exposing your entire home directory. `deny_read_patterns` are expanded from your local home and rendered into the macOS `sandbox-exec` profile as explicit read denials, so broad read-only roots like `~/build` can still exclude secret-like files.
 
 Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
 
