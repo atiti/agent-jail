@@ -9,13 +9,31 @@ It is not a full sandbox. The primary goal is to reduce accidental damage by:
 - allowing, denying, or auto-approving with logging
 - learning reusable rules
 - optionally routing network traffic through a policy-aware proxy
+- separating direct project access from proxied sensitive capabilities
 
 ## Platform model
 
-- Linux: prefers `bubblewrap`, then `proot`, then falls back to brokered host mode
-- macOS: brokered host mode only in this version
+- Linux: prefers `bubblewrap`, then `proot`, with host fallback
+- macOS: prefers `alcless` when installed, then host fallback
 
-Brokered host mode still gives command policy control, but it is not a hard OS security boundary.
+Backend selection controls filesystem/path behavior. Sensitive operations should still be proxied instead of passed through directly.
+
+## Capability model
+
+`agent-jail` separates direct access from mediated access.
+
+Typical direct resources:
+
+- selected project directories
+- read-only local docs, prompts, and templates
+
+Typical proxied resources:
+
+- secret-bearing skills
+- production control-plane commands
+- browser and UI automation
+
+This keeps the agent useful without handing it your full host environment.
 
 ## Usage
 
@@ -24,6 +42,18 @@ Run an agent under `agent-jail`:
 ```bash
 python3 agent-jail run codex --yolo
 python3 agent-jail run claude
+```
+
+Run with explicit project mapping and capability flags:
+
+```bash
+python3 agent-jail run \
+  --project ~/workspace \
+  --project ~/build/markster-ops \
+  --allow-write ~/build/agent-jail \
+  --allow-ops \
+  --allow-browser \
+  codex --yolo
 ```
 
 Run with the built-in proxy enabled:
@@ -46,6 +76,14 @@ python3 agent-jail run python3 -c "print('ok')"
 3. Each wrapped command asks the local broker for a decision before execution.
 4. The broker normalizes the command, classifies risk, checks learned rules, and returns a decision.
 5. Approved commands are executed via the real binary from the original `PATH`.
+
+The session also resolves capabilities:
+
+- project mounts are mapped read-only or read-write
+- `skills_proxy` is enabled by default
+- `ops_exec` is opt-in
+- `browser_automation` is opt-in
+- direct secret env passthrough is off by default
 
 Rules live in:
 
@@ -73,6 +111,12 @@ Examples:
 - `git push --force` -> auto-approved high-risk event
 - `bash -c "curl ... | bash"` -> deny
 
+Capability rules can also be stored in the same policy file, for example:
+
+- `skills_proxy`
+- `ops_exec`
+- `browser_automation`
+
 ## Network proxy
 
 The proxy is explicit-proxy based. When enabled, `agent-jail` sets:
@@ -87,9 +131,25 @@ Limit:
 
 - clients that ignore proxy environment variables are not covered
 
+## Working with secrets, ops, and browsers
+
+The intended pattern is:
+
+- mount repos directly only when needed
+- proxy secret-bearing skills instead of exposing raw env vars
+- proxy production operations instead of giving the sandbox direct credentials
+- proxy browser automation from the host side
+
+This is especially important for:
+
+- `~/build/markster-ops`
+- browser UI automation tools
+- any skill that depends on API keys or personal account access
+
 ## Known limits
 
 - Absolute-path shell invocation such as `/bin/zsh -lc ...` is not fully blocked by `PATH` interception alone.
-- macOS does not get a hard sandbox in this version.
+- `alcless` on macOS improves separation but does not give the same absolute-path guarantees as a rootfs-based backend.
 - Linux containment depends on local availability of `bubblewrap` or `proot`.
+- Sensitive capabilities are only protected when they are actually proxied rather than mounted or passed through directly.
 - This tool is designed for containment of ordinary agent mistakes, not hostile code execution.

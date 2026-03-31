@@ -11,6 +11,9 @@ def choose_backend(system=None, have=None):
             return {"name": "bubblewrap"}
         if have("proot"):
             return {"name": "proot"}
+    if system.startswith("darwin"):
+        if have("alcless"):
+            return {"name": "alcless"}
     return {"name": "host"}
 
 
@@ -32,4 +35,6 @@ def build_command(backend, target_argv, cwd, env):
         if home and os.path.exists(home):
             cmd += ["-b", f"{home}:{home}"]
         return cmd + target_argv
+    if name == "alcless":
+        return ["alcless", "--plain", *target_argv]
     return list(target_argv)

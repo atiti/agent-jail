@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a small Python 3 CLI that launches an AI agent CLI under a PATH-injected wrapper layer and routes intercepted commands through a broker for normalization, policy, risk, logging, rule learning, backend selection, and optional proxy-based network control.
+**Goal:** Build a small Python 3 CLI that launches an AI agent CLI under a PATH-injected wrapper layer and routes intercepted commands through a broker for normalization, policy, risk, logging, rule learning, backend selection, capability gating, and optional proxy-based network control.
 
-**Architecture:** Use a Python launcher and broker with POSIX shell wrappers generated into a temporary session directory. On Linux, prefer `bubblewrap`, then `proot`, otherwise host mode; on macOS, use host mode with clear limits. Keep policy persistence in a single JSON file under the user home directory, use a tiny explicit proxy for outbound policy checks, and cover the behavior with standard-library `unittest`.
+**Architecture:** Use a Python launcher and broker with POSIX shell wrappers generated into a temporary session directory. On Linux, prefer `bubblewrap`, then `proot`, with optional advanced `chroot`; on macOS, prefer `alcless`, offer `lima`, then fall back to host mode with clear limits. Add a capability layer so project mounts, secret-bearing skills, production operations, and browser automation can be mediated separately. Keep policy persistence in a single JSON file under the user home directory, use a tiny explicit proxy for outbound policy checks, and cover the behavior with standard-library `unittest`.
 
 **Tech Stack:** Python 3 standard library, POSIX shell wrappers, `unittest`
 
@@ -155,6 +155,9 @@ git commit -m "feat(policy): add JSON policy matching and rule learning"
 def test_linux_prefers_bwrap_when_available():
     ...
 
+def test_macos_prefers_alcless_when_available():
+    ...
+
 def test_proxy_denies_unknown_host_when_default_is_deny():
     ...
 ```
@@ -186,7 +189,49 @@ git add agent_jail/backend.py agent_jail/proxy.py tests/test_backend.py tests/te
 git commit -m "feat(runtime): add backend selection and proxy policy"
 ```
 
-### Task 5: Add wrapper generation and broker server flow
+### Task 5: Add capability resolution and session resource mapping
+
+**Files:**
+- Create: `agent_jail/capabilities.py`
+- Modify: `agent_jail/main.py`
+- Modify: `agent_jail/policy.py`
+- Test: `tests/test_capabilities.py`
+
+- [ ] **Step 1: Write the failing capability tests**
+
+```python
+def test_session_projects_expand_to_explicit_mounts():
+    ...
+
+def test_secret_bearing_skills_default_to_proxy_mode():
+    ...
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `python3 -m unittest tests.test_capabilities -v`
+Expected: FAIL because capability helpers are missing
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+def resolve_session_capabilities(...):
+    ...
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `python3 -m unittest tests.test_capabilities -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add agent_jail/capabilities.py agent_jail/main.py agent_jail/policy.py tests/test_capabilities.py
+git commit -m "feat(capabilities): add session capability resolution"
+```
+
+### Task 6: Add wrapper generation and broker server flow
 
 **Files:**
 - Create: `agent_jail/wrappers.py`
@@ -231,7 +276,50 @@ git add agent_jail/wrappers.py agent_jail/broker.py agent_jail/main.py tests/tes
 git commit -m "feat(exec): add broker socket flow and generated command wrappers"
 ```
 
-### Task 6: Finish docs and release ergonomics
+### Task 7: Add proxied sensitive capability adapters
+
+**Files:**
+- Create: `agent_jail/skills_proxy.py`
+- Create: `agent_jail/ops_proxy.py`
+- Create: `agent_jail/browser_proxy.py`
+- Modify: `agent_jail/broker.py`
+- Test: `tests/test_capability_proxies.py`
+
+- [ ] **Step 1: Write the failing proxy capability tests**
+
+```python
+def test_ops_exec_requires_capability_allow():
+    ...
+
+def test_browser_automation_routes_to_host_proxy():
+    ...
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `python3 -m unittest tests.test_capability_proxies -v`
+Expected: FAIL because capability proxy adapters are missing
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+def run_ops_proxy(...):
+    ...
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `python3 -m unittest tests.test_capability_proxies -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add agent_jail/skills_proxy.py agent_jail/ops_proxy.py agent_jail/browser_proxy.py agent_jail/broker.py tests/test_capability_proxies.py
+git commit -m "feat(proxy): add mediated skills ops and browser adapters"
+```
+
+### Task 8: Finish docs and release ergonomics
 
 **Files:**
 - Modify: `README.md`
@@ -248,9 +336,10 @@ Add:
 - installation and usage
 - `agent-jail run codex --yolo`
 - `agent-jail run claude`
+- backend matrix: `bubblewrap`, `proot`, `alcless`, `lima`, `chroot`
 - known limits for absolute-path shell invocation
-- Linux backend fallback order
-- macOS host-mode limitation
+- project mount strategy
+- why secrets, ops, and browser automation should be proxied
 
 - [ ] **Step 3: Run the full test suite**
 

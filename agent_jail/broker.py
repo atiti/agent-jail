@@ -6,6 +6,10 @@ import sys
 import threading
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
+from agent_jail.browser_proxy import run_browser_proxy
+from agent_jail.ops_proxy import run_ops_proxy
+from agent_jail.skills_proxy import run_skill_proxy
+
 
 def normalize(argv):
     tool = os.path.basename(argv[0]) if argv else ""
@@ -63,9 +67,10 @@ class _Handler(StreamRequestHandler):
 
 
 class BrokerServer:
-    def __init__(self, path, policy_store):
+    def __init__(self, path, policy_store, capabilities=None):
         self.path = path
         self.policy_store = policy_store
+        self.capabilities = capabilities or {}
         self.server = None
 
     def serve_forever(self):
@@ -87,7 +92,10 @@ class BrokerServer:
             os.unlink(self.path)
 
     def handle(self, request):
-        if request.get("type") != "exec":
+        req_type = request.get("type")
+        if req_type == "capability":
+            return self._handle_capability(request)
+        if req_type != "exec":
             return {"decision": "deny", "reason": "unsupported request"}
         argv = request["argv"]
         intent = normalize(argv)
@@ -110,6 +118,26 @@ class BrokerServer:
             self.policy_store.learn(intent)
         self._log("ALLOW", raw)
         return {"decision": "allow", "reason": verdict["reason"]}
+
+    def _handle_capability(self, request):
+        name = request.get("name")
+        matched = self.policy_store.match({"name": name}, kind="capability")
+        allowed = bool(self.capabilities.get(name))
+        if matched is not None:
+            allowed = allowed and matched["allow"]
+        if not allowed:
+            self._log("DENY", f"capability {name}")
+            return {"decision": "deny", "reason": f"{name} capability denied"}
+        if name == "ops_exec":
+            result = run_ops_proxy(self.capabilities, request.get("payload", {}).get("command", []))
+        elif name == "browser_automation":
+            result = run_browser_proxy(self.capabilities, request.get("payload", {}))
+        elif name == "skills_proxy":
+            result = run_skill_proxy(self.capabilities, request.get("payload", {}))
+        else:
+            result = {"status": "ok", "name": name}
+        self._log("ALLOW", f"capability {name}")
+        return {"decision": "allow", "reason": "capability allowed", "result": result}
 
     def _log(self, tag, raw):
         print(f"[{tag}] {raw}", file=sys.stderr, flush=True)

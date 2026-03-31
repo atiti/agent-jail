@@ -21,3 +21,7 @@ class BackendTests(unittest.TestCase):
     def test_macos_uses_host_mode(self):
         backend = choose_backend("darwin", have=lambda name: False)
         self.assertEqual(backend["name"], "host")
+
+    def test_macos_prefers_alcless_when_available(self):
+        backend = choose_backend("darwin", have=lambda name: name == "alcless")
+        self.assertEqual(backend["name"], "alcless")

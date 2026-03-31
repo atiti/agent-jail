@@ -32,6 +32,10 @@ class PolicyStore:
         for rule in self.rules:
             if rule.get("kind", "exec") != kind:
                 continue
+            if kind == "capability":
+                if rule.get("name") != subject.get("name"):
+                    continue
+                return {"allow": bool(rule.get("allow", False)), "rule": rule}
             if kind == "network":
                 if rule.get("host") != subject.get("host"):
                     continue
@@ -48,6 +52,13 @@ class PolicyStore:
         return None
 
     def learn(self, subject, kind="exec"):
+        if kind == "capability":
+            name = subject.get("name")
+            if not name or self.match({"name": name}, kind="capability"):
+                return
+            self.rules.append({"kind": "capability", "name": name, "allow": True})
+            self.save()
+            return
         if kind == "network":
             host = subject.get("host")
             if not host or self.match({"host": host, "port": subject.get("port")}, kind="network"):
