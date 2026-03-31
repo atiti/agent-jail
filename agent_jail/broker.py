@@ -9,6 +9,7 @@ from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
 from agent_jail.events import render_event
+from agent_jail.rule_jit import JITRuleEngine
 from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
@@ -240,7 +241,17 @@ class _Handler(StreamRequestHandler):
 
 
 class BrokerServer:
-    def __init__(self, path, policy_store, capabilities=None, delegates=None, event_sink=None, log_stderr=False):
+    def __init__(
+        self,
+        path,
+        policy_store,
+        capabilities=None,
+        delegates=None,
+        event_sink=None,
+        log_stderr=False,
+        llm_policy=None,
+        jit_engine=None,
+    ):
         self.path = path
         self.policy_store = policy_store
         self.capabilities = capabilities or {}
@@ -248,6 +259,7 @@ class BrokerServer:
         self.server = None
         self.event_sink = event_sink
         self.log_stderr = log_stderr
+        self.jit_engine = jit_engine or JITRuleEngine(llm_policy or {})
 
     def serve_forever(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -325,6 +337,74 @@ class BrokerServer:
                 reason=verdict.get("reason"),
             )
             return {"decision": "deny", "reason": verdict["reason"]}
+        template = event_template(intent, verdict)
+        if self.jit_engine.eligible(verdict):
+            jit = self.jit_engine.decide(intent, raw, verdict, template, context=context)
+            jit_config = getattr(self.jit_engine, "config", {}) or {}
+            if (
+                jit.get("decision_hint") == "allow"
+                and jit.get("rule")
+                and jit_config.get("jit_auto_apply_low_risk", True)
+            ):
+                self.policy_store.add_rule(jit["rule"])
+                self._log(
+                    "ALLOW",
+                    raw,
+                    verdict.get("category"),
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    reason=jit.get("reason"),
+                    jit=True,
+                    confidence=jit.get("confidence"),
+                )
+                return {"decision": "allow", "reason": f"jit-approved: {jit.get('reason', 'low-risk generalized rule')}"}
+            if jit.get("decision_hint") == "allow" and jit.get("rule"):
+                self._log(
+                    "ASK",
+                    raw,
+                    verdict.get("category"),
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    reason="jit auto-apply disabled",
+                    jit=True,
+                    confidence=jit.get("confidence"),
+                )
+                return {"decision": "deny", "reason": "jit-review-required: auto-apply disabled"}
+            if jit.get("decision_hint") == "reject":
+                self._log(
+                    "DENY",
+                    raw,
+                    verdict.get("category"),
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    reason=jit.get("reason"),
+                    jit=True,
+                    confidence=jit.get("confidence"),
+                )
+                return {"decision": "deny", "reason": f"jit-rejected: {jit.get('reason', 'unsafe command pattern')}"}
+            self._log(
+                "ASK",
+                raw,
+                verdict.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=template,
+                risk="jit",
+                reason=jit.get("reason"),
+                jit=True,
+                confidence=jit.get("confidence"),
+            )
+            return {"decision": "deny", "reason": f"jit-review-required: {jit.get('reason', 'unknown low-impact command')}"}
         if risk == "high":
             self.policy_store.learn(intent)
             self._log(
@@ -334,7 +414,7 @@ class BrokerServer:
                 kind="exec",
                 tool=intent["tool"],
                 verb=intent["action"],
-                template=event_template(intent, verdict),
+                template=template,
                 risk=risk,
                 reason=verdict.get("reason"),
             )
@@ -348,7 +428,7 @@ class BrokerServer:
             kind="exec",
             tool=intent["tool"],
             verb=intent["action"],
-            template=event_template(intent, verdict),
+            template=template,
             risk=risk,
             reason=verdict.get("reason"),
         )

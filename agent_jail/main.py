@@ -298,6 +298,7 @@ def run(argv=None):
             delegates=config.get("delegates", []),
             event_sink=event_sink,
             log_stderr=bool(os.environ.get("AGENT_JAIL_LOG_STDERR")),
+            llm_policy=config.get("llm_policy", {}),
         )
         broker_thread = threading.Thread(target=broker.serve_forever, daemon=True)
         broker_thread.start()

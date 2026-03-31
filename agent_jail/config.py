@@ -61,5 +61,8 @@ def load_config(path=None):
         "api_version": llm_policy.get("api_version", "2024-10-21"),
         "auto_promote_min_count": int(llm_policy.get("auto_promote_min_count", 3)),
         "confidence_threshold": float(llm_policy.get("confidence_threshold", 0.8)),
+        "jit_enabled": bool(llm_policy.get("jit_enabled", False)),
+        "jit_timeout_ms": int(llm_policy.get("jit_timeout_ms", 800)),
+        "jit_auto_apply_low_risk": bool(llm_policy.get("jit_auto_apply_low_risk", True)),
     }
     return data

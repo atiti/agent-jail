@@ -19,6 +19,7 @@
 - Added contextual low-risk cleanup classification for repo-local generated artifacts such as `__pycache__` directories.
 - Added structured JSONL event logging plus `agent-jail monitor`, and moved broker decision logging off interactive stderr by default.
 - Added `agent-jail suggest-rules` with Azure OpenAI-backed proposal support, deterministic low-risk validation, and auto-promotion thresholds.
+- Added a narrow JIT rule engine for unknown low-risk general commands, with Azure-backed confidence checks, session caching, and review-required fallback on uncertainty.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.

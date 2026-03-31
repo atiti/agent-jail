@@ -46,6 +46,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["llm_policy"]["endpoint_env"], "AZURE_OPENAI_ENDPOINT")
         self.assertEqual(config["llm_policy"]["api_key_env"], "AZURE_OPENAI_API_KEY")
         self.assertEqual(config["llm_policy"]["deployment_env"], "AZURE_OPENAI_DEPLOYMENT")
+        self.assertFalse(config["llm_policy"]["jit_enabled"])
+        self.assertEqual(config["llm_policy"]["jit_timeout_ms"], 800)
 
     def test_load_config_normalizes_llm_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,3 +71,4 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["llm_policy"]["api_version"], "2024-10-21")
         self.assertEqual(config["llm_policy"]["auto_promote_min_count"], 4)
         self.assertEqual(config["llm_policy"]["confidence_threshold"], 0.9)
+        self.assertFalse(config["llm_policy"]["jit_enabled"])

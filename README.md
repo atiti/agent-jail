@@ -252,6 +252,22 @@ You can also configure Azure OpenAI for offline rule suggestion and low-risk aut
 
 When configured, `agent-jail suggest-rules` asks Azure OpenAI for generalized proposals, validates them deterministically, and only auto-applies low-risk rules that clear the configured thresholds.
 
+You can also enable a narrow JIT rule lane for unknown low-impact commands:
+
+```json
+{
+  "llm_policy": {
+    "provider": "azure_openai",
+    "jit_enabled": true,
+    "jit_timeout_ms": 800,
+    "jit_auto_apply_low_risk": true,
+    "confidence_threshold": 0.8
+  }
+}
+```
+
+This JIT path only applies to commands that currently fall through to low-risk `general`. Known read-only tools and deterministic heuristics still resolve locally. If the JIT engine is confident, it can auto-apply a generalized low-risk rule immediately. If it is unsure, the command is denied with a review-required reason instead of being silently widened.
+
 Sensitive tools are intended to be mediated-only. Direct execution is blocked for:
 
 - any tool listed in a configured delegate's `allowed_tools`
