@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 AGENT_JAIL_BIN="${REPO_ROOT}/agent-jail"
-MODE="run"
+MODE="all"
 KEEP_STATE=0
 SUITE_HOME=""
 COLOR=0
@@ -39,15 +39,21 @@ CASE_EXPECTS=()
 CASE_GROUPS=()
 CASE_DESCS=()
 CASE_CMDS=()
+JIT_NAMES=()
+JIT_MODES=()
+JIT_DESCS=()
+JIT_CMDS=()
+JIT_TEMPLATES=()
 
 usage() {
   cat <<'EOF'
-Usage: scripts/manual_policy_suite.sh [--list] [--keep-state] [--home <path>]
+Usage: scripts/manual_policy_suite.sh [--list] [--mode deterministic|jit|all] [--keep-state] [--home <path>]
 
 Runs a manual non-destructive policy smoke suite against agent-jail.
 
 Options:
   --list          Print the cases without executing them
+  --mode <mode>   Run deterministic, jit, or all cases (default: all)
   --keep-state    Keep the temporary AGENT_JAIL_HOME directory after the run
   --home <path>   Use an explicit AGENT_JAIL_HOME instead of a temporary one
 EOF
@@ -64,6 +70,19 @@ add_case() {
   CASE_GROUPS+=("${group}")
   CASE_DESCS+=("${description}")
   CASE_CMDS+=("$(printf '%q ' "$@")")
+}
+
+add_jit_case() {
+  local name="$1"
+  local mode="$2"
+  local description="$3"
+  local template="$4"
+  shift 4
+  JIT_NAMES+=("${name}")
+  JIT_MODES+=("${mode}")
+  JIT_DESCS+=("${description}")
+  JIT_TEMPLATES+=("${template}")
+  JIT_CMDS+=("$(printf '%q ' "$@")")
 }
 
 render_tag() {
@@ -96,11 +115,27 @@ print_case_output() {
   echo "${C_DIM}... truncated ${total_lines} lines to ${MAX_OUTPUT_LINES}${C_RESET}"
 }
 
+policy_query() {
+  local home="$1"
+  local snippet="$2"
+  AGENT_JAIL_TARGET_HOME="${home}" AGENT_JAIL_POLICY_SNIPPET="${snippet}" python3 - <<'PY'
+import json, os, pathlib
+path = pathlib.Path(os.environ["AGENT_JAIL_TARGET_HOME"]) / "policy.json"
+data = json.loads(path.read_text()) if path.exists() else {"rules": [], "pending_reviews": []}
+namespace = {"data": data}
+exec(os.environ["AGENT_JAIL_POLICY_SNIPPET"], namespace)
+PY
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --list)
       MODE="list"
       shift
+      ;;
+    --mode)
+      MODE="$2"
+      shift 2
       ;;
     --keep-state)
       KEEP_STATE=1
@@ -122,6 +157,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "${MODE}" in
+  list|deterministic|jit|all) ;;
+  *)
+    echo "invalid mode: ${MODE}" >&2
+    exit 2
+    ;;
+esac
+
 if [ -z "${SUITE_HOME}" ]; then
   SUITE_HOME=$(mktemp -d "${TMPDIR:-/tmp}/agent-jail-manual-suite.XXXXXX")
   CREATED_HOME=1
@@ -137,7 +180,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat > "${SUITE_HOME}/config.json" <<EOF
+profile_home() {
+  local profile="$1"
+  local home="${SUITE_HOME}/${profile}"
+  mkdir -p "${home}"
+  case "${profile}" in
+    deterministic)
+      cat > "${home}/config.json" <<EOF
 {
   "filesystem": {
     "read_only_roots": ["~/build"],
@@ -157,6 +206,84 @@ cat > "${SUITE_HOME}/config.json" <<EOF
   }
 }
 EOF
+      ;;
+    jit-allow)
+      cat > "${home}/config.json" <<EOF
+{
+  "filesystem": {
+    "read_only_roots": ["~/build"],
+    "write_roots": ["~/workspace"],
+    "deny_read_patterns": [
+      "~/build/**/.env",
+      "~/build/**/.env.*",
+      "~/build/**/secrets/**"
+    ]
+  },
+  "llm_policy": {
+    "provider": "stub",
+    "jit_enabled": true,
+    "jit_auto_apply_low_risk": true,
+    "stub_mode": "allow",
+    "stub_confidence": 0.95,
+    "confidence_threshold": 0.8
+  }
+}
+EOF
+      ;;
+    jit-ask)
+      cat > "${home}/config.json" <<EOF
+{
+  "filesystem": {
+    "read_only_roots": ["~/build"],
+    "write_roots": ["~/workspace"],
+    "deny_read_patterns": [
+      "~/build/**/.env",
+      "~/build/**/.env.*",
+      "~/build/**/secrets/**"
+    ]
+  },
+  "llm_policy": {
+    "provider": "stub",
+    "jit_enabled": true,
+    "jit_auto_apply_low_risk": true,
+    "stub_mode": "ask",
+    "stub_confidence": 0.6,
+    "confidence_threshold": 0.8
+  }
+}
+EOF
+      ;;
+    jit-reject)
+      cat > "${home}/config.json" <<EOF
+{
+  "filesystem": {
+    "read_only_roots": ["~/build"],
+    "write_roots": ["~/workspace"],
+    "deny_read_patterns": [
+      "~/build/**/.env",
+      "~/build/**/.env.*",
+      "~/build/**/secrets/**"
+    ]
+  },
+  "llm_policy": {
+    "provider": "stub",
+    "jit_enabled": true,
+    "jit_auto_apply_low_risk": true,
+    "stub_mode": "reject",
+    "stub_reason": "stub reject",
+    "stub_confidence": 0.95,
+    "confidence_threshold": 0.8
+  }
+}
+EOF
+      ;;
+    *)
+      echo "unknown profile: ${profile}" >&2
+      exit 2
+      ;;
+  esac
+  printf '%s\n' "${home}"
+}
 
 pass_count=0
 fail_count=0
@@ -170,7 +297,9 @@ run_case() {
   local group="${CASE_GROUPS[${index}]}"
   local serialized="${CASE_CMDS[${index}]}"
   local -a cmd=()
+  local home
   eval "cmd=( ${serialized} )"
+  home=$(profile_home "deterministic")
 
   if [ "${MODE}" = "list" ]; then
     printf '%-24s %-18s %-18s %s\n' "${name}" "${group}" "${expectation}" "${description}"
@@ -186,7 +315,7 @@ run_case() {
 
   local output status
   set +e
-  output=$(AGENT_JAIL_HOME="${SUITE_HOME}" "${AGENT_JAIL_BIN}" run --project "${REPO_ROOT}" --allow-write "${REPO_ROOT}" "${cmd[@]}" 2>&1)
+  output=$(AGENT_JAIL_HOME="${home}" "${AGENT_JAIL_BIN}" run --project "${REPO_ROOT}" --allow-write "${REPO_ROOT}" "${cmd[@]}" 2>&1)
   status=$?
   set -e
   print_case_output "${output}"
@@ -232,6 +361,85 @@ run_case() {
   echo "result: $(render_tag "${result}")"
 }
 
+run_jit_case() {
+  local index="$1"
+  local name="${JIT_NAMES[${index}]}"
+  local jit_mode="${JIT_MODES[${index}]}"
+  local description="${JIT_DESCS[${index}]}"
+  local template="${JIT_TEMPLATES[${index}]}"
+  local serialized="${JIT_CMDS[${index}]}"
+  local -a cmd=()
+  local profile="jit-${jit_mode}"
+  local home
+  eval "cmd=( ${serialized} )"
+  home=$(profile_home "${profile}")
+
+  if [ "${MODE}" = "list" ]; then
+    printf '%-24s %-18s %-18s %s\n' "${name}" "jit/${jit_mode}" "${jit_mode}" "${description}"
+    return 0
+  fi
+
+  echo
+  echo "${C_BLUE}${C_BOLD}== ${name} ==${C_RESET}"
+  echo "${C_DIM}group:${C_RESET}  jit/${jit_mode}"
+  echo "${C_DIM}expect:${C_RESET} $(render_tag "$(echo "${jit_mode}" | tr '[:lower:]' '[:upper:]')")"
+  echo "${C_DIM}desc:${C_RESET}   ${description}"
+  echo "${C_DIM}cmd:${C_RESET}    ${cmd[*]}"
+
+  local output status result review_id has_rule template_ok rerun_output rerun_status
+  set +e
+  output=$(AGENT_JAIL_HOME="${home}" "${AGENT_JAIL_BIN}" run --project "${REPO_ROOT}" --allow-write "${REPO_ROOT}" "${cmd[@]}" 2>&1)
+  status=$?
+  set -e
+  print_case_output "${output}"
+  result="FAIL"
+
+  case "${jit_mode}" in
+    allow)
+      if [ "${status}" -eq 0 ]; then
+        has_rule=$(AGENT_JAIL_EXPECTED_TEMPLATE="${template}" policy_query "${home}" $'import os\nprint(any(rule.get("constraints", {}).get("template") == os.environ["AGENT_JAIL_EXPECTED_TEMPLATE"] for rule in data.get("rules", [])))')
+        if [ "${has_rule}" = "True" ]; then
+          set +e
+          rerun_output=$(AGENT_JAIL_HOME="${home}" "${AGENT_JAIL_BIN}" run --project "${REPO_ROOT}" --allow-write "${REPO_ROOT}" "${cmd[@]}" 2>&1)
+          rerun_status=$?
+          set -e
+          if [ "${rerun_status}" -eq 0 ]; then
+            result="PASS"
+          fi
+        fi
+      fi
+      ;;
+    ask)
+      if [ "${status}" -ne 0 ] && [[ "${output}" == *"jit-review-required["* ]]; then
+        review_id=$(printf '%s' "${output}" | sed -n 's/.*jit-review-required\[\([^]]*\)\].*/\1/p' | head -n 1)
+        template_ok=$(AGENT_JAIL_EXPECTED_TEMPLATE="${template}" AGENT_JAIL_REVIEW_ID="${review_id}" policy_query "${home}" $'import os\nitems = [item for item in data.get("pending_reviews", []) if item.get("id") == os.environ["AGENT_JAIL_REVIEW_ID"]]\nprint(bool(items and items[0].get("template") == os.environ["AGENT_JAIL_EXPECTED_TEMPLATE"]))')
+        set +e
+        rerun_output=$(AGENT_JAIL_HOME="${home}" "${AGENT_JAIL_BIN}" run --project "${REPO_ROOT}" --allow-write "${REPO_ROOT}" "${cmd[@]}" 2>&1)
+        rerun_status=$?
+        set -e
+        if [ "${template_ok}" = "True" ] && [ "${rerun_status}" -ne 0 ] && [[ "${rerun_output}" == *"jit-review-required[${review_id}]"* ]]; then
+          result="PASS"
+        fi
+      fi
+      ;;
+    reject)
+      if [ "${status}" -ne 0 ] && [[ "${output}" == *"jit-rejected:"* ]]; then
+        result="PASS"
+      fi
+      ;;
+    *)
+      echo "unknown jit mode: ${jit_mode}" >&2
+      exit 2
+      ;;
+  esac
+
+  case "${result}" in
+    PASS) pass_count=$((pass_count + 1)) ;;
+    FAIL) fail_count=$((fail_count + 1)) ;;
+  esac
+  echo "result: $(render_tag "${result}")"
+}
+
 python_read_repo=$'import pathlib\nprint(pathlib.Path("README.md").read_text().splitlines()[0])'
 python_read_system=$'print(open("/etc/passwd").read())'
 
@@ -252,6 +460,10 @@ fi
 
 add_case "observe_dmesg" "observe" "observability" "current model behavior for kernel log reads" bash -c 'dmesg'
 
+add_jit_case "jit_python_auto_allow" "allow" "stub JIT auto-allows a semantic python inspection rule and persists it" "python read-only subprocess script" python3 -c "import subprocess; subprocess.run(['tree', '-L', '2'])"
+add_jit_case "jit_python_review" "ask" "stub JIT creates one deduped pending review with the semantic python template" "python read-only subprocess script" python3 -c "import subprocess; subprocess.run(['tree', '-L', '2'])"
+add_jit_case "jit_tree_reject" "reject" "stub JIT explicit reject denies the command without creating an allow rule" "tree *" tree -L 2
+
 print_header
 
 if [ "${MODE}" = "list" ]; then
@@ -260,12 +472,23 @@ if [ "${MODE}" = "list" ]; then
   for ((i=0; i<${#CASE_NAMES[@]}; i++)); do
     run_case "${i}"
   done
+  for ((i=0; i<${#JIT_NAMES[@]}; i++)); do
+    run_jit_case "${i}"
+  done
   exit 0
 fi
 
-for ((i=0; i<${#CASE_NAMES[@]}; i++)); do
-  run_case "${i}"
-done
+if [ "${MODE}" = "all" ] || [ "${MODE}" = "deterministic" ]; then
+  for ((i=0; i<${#CASE_NAMES[@]}; i++)); do
+    run_case "${i}"
+  done
+fi
+
+if [ "${MODE}" = "all" ] || [ "${MODE}" = "jit" ]; then
+  for ((i=0; i<${#JIT_NAMES[@]}; i++)); do
+    run_jit_case "${i}"
+  done
+fi
 
 echo
 echo "${C_CYAN}${C_BOLD}summary${C_RESET}"

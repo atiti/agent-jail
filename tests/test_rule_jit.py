@@ -122,3 +122,43 @@ class JITRuleTests(unittest.TestCase):
         with mock.patch.object(urllib.request, "urlopen", side_effect=http_error):
             result = engine._decide_remote({"tool": "tree", "action": "exec"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *", {})
         self.assertEqual(result["reason"], "jit http error: 401")
+
+    def test_stub_allow_builds_rule(self):
+        engine = JITRuleEngine(
+            {
+                "provider": "stub",
+                "jit_enabled": True,
+                "stub_mode": "allow",
+                "stub_confidence": 0.95,
+                "confidence_threshold": 0.8,
+            }
+        )
+        result = engine.decide({"tool": "tree", "action": "exec", "template": "tree *"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *")
+        self.assertEqual(result["decision_hint"], "allow")
+        self.assertEqual(result["rule"]["tool"], "tree")
+
+    def test_stub_ask_creates_candidate_rule(self):
+        engine = JITRuleEngine(
+            {
+                "provider": "stub",
+                "jit_enabled": True,
+                "stub_mode": "ask",
+                "stub_confidence": 0.6,
+            }
+        )
+        result = engine.decide({"tool": "python3", "action": "exec", "template": "python read-only subprocess script"}, "python3 -c ...", {"risk": "low", "category": "general"}, "python read-only subprocess script")
+        self.assertEqual(result["decision_hint"], "ask")
+        self.assertEqual(result["rule"]["constraints"]["template"], "python read-only subprocess script")
+
+    def test_stub_reject_is_explicit(self):
+        engine = JITRuleEngine(
+            {
+                "provider": "stub",
+                "jit_enabled": True,
+                "stub_mode": "reject",
+                "stub_reason": "stubbed reject",
+            }
+        )
+        result = engine.decide({"tool": "tree", "action": "exec"}, "tree -L 2", {"risk": "low", "category": "general"}, "tree *")
+        self.assertEqual(result["decision_hint"], "reject")
+        self.assertEqual(result["reason"], "stubbed reject")

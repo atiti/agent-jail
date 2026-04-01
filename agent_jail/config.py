@@ -64,5 +64,8 @@ def load_config(path=None):
         "jit_enabled": bool(llm_policy.get("jit_enabled", False)),
         "jit_timeout_ms": int(llm_policy.get("jit_timeout_ms", 800)),
         "jit_auto_apply_low_risk": bool(llm_policy.get("jit_auto_apply_low_risk", True)),
+        "stub_mode": llm_policy.get("stub_mode", ""),
+        "stub_confidence": float(llm_policy.get("stub_confidence", 0.95)),
+        "stub_reason": llm_policy.get("stub_reason", ""),
     }
     return data

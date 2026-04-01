@@ -32,6 +32,8 @@ class JITRuleEngine:
         return result
 
     def _decide_remote(self, intent, raw, verdict, template, context):
+        if self._stub_enabled():
+            return self._decide_stub(intent, template)
         if not self._azure_enabled():
             return {
                 "decision_hint": "ask",
@@ -200,6 +202,50 @@ class JITRuleEngine:
             }
         return result
 
+    def _decide_stub(self, intent, template):
+        mode = (self.config.get("stub_mode") or "ask").lower()
+        confidence = float(self.config.get("stub_confidence", 0.95))
+        reason = self.config.get("stub_reason") or f"stub {mode}"
+        if mode == "reject":
+            return {
+                "decision_hint": "reject",
+                "confidence": confidence,
+                "reason": reason,
+                "template": template,
+                "source": "stub_jit",
+            }
+        candidate_rule = {
+            "kind": "exec",
+            "tool": intent.get("tool"),
+            "action": intent.get("action"),
+            "constraints": {"template": template} if intent.get("template") else {},
+            "category": "general",
+            "risk": "low",
+        }
+        if mode == "allow":
+            return self._validate_response(
+                {
+                    "decision_hint": "allow",
+                    "confidence": confidence,
+                    "generalized_template": template,
+                    "candidate_rule": candidate_rule,
+                    "reason": reason,
+                },
+                intent,
+                template,
+            )
+        return self._validate_response(
+            {
+                "decision_hint": "ask",
+                "confidence": confidence,
+                "generalized_template": template,
+                "candidate_rule": candidate_rule,
+                "reason": reason,
+            },
+            intent,
+            template,
+        )
+
     def _azure_enabled(self):
         if self.config.get("provider") != "azure_openai":
             return False
@@ -208,3 +254,6 @@ class JITRuleEngine:
             and self.environ.get(self.config.get("api_key_env", ""))
             and self.environ.get(self.config.get("deployment_env", ""))
         )
+
+    def _stub_enabled(self):
+        return self.config.get("provider") == "stub"

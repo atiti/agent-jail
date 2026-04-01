@@ -18,3 +18,4 @@ class ManualSuiteTests(unittest.TestCase):
         self.assertIn("allow_repo_cat", proc.stdout)
         self.assertIn("deny_system_cat", proc.stdout)
         self.assertIn("observe_dmesg", proc.stdout)
+        self.assertIn("jit_python_auto_allow", proc.stdout)

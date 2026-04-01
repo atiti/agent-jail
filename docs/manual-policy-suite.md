@@ -13,6 +13,7 @@ What it does:
 - prints colorized `PASS`, `FAIL`, or `OBSERVE` for each case
 - groups cases by area such as read scope, interpreters, devices, and procfs
 - keeps the suite extensible through a simple case registry in the script
+- supports both deterministic policy cases and standardized JIT cases
 
 List the cases without running them:
 
@@ -24,6 +25,13 @@ Run the suite:
 
 ```bash
 bash scripts/manual_policy_suite.sh
+```
+
+Run only deterministic or JIT cases:
+
+```bash
+bash scripts/manual_policy_suite.sh --mode deterministic
+bash scripts/manual_policy_suite.sh --mode jit
 ```
 
 Keep the temporary state directory for inspection:
@@ -48,6 +56,7 @@ Covered cases include:
 - `/dev/fd/*` path reads
 - `/proc` reads when available on the host
 - an `OBSERVE` case for `dmesg`, which is intentionally reported as current behavior rather than locked to a pass/fail expectation
+- stubbed JIT auto-allow, review, and reject cases with assertions on `policy.json`
 
 To extend the suite, add another `add_case` entry in [manual_policy_suite.sh](/Users/attilasukosd/build/agent-jail/scripts/manual_policy_suite.sh). Each case declares:
 
@@ -56,5 +65,12 @@ To extend the suite, add another `add_case` entry in [manual_policy_suite.sh](/U
 - group
 - description
 - command argv
+
+For JIT cases, add `add_jit_case` entries instead. Those cases run against isolated stubbed JIT profiles and verify side effects such as:
+
+- rule insertion
+- semantic template matching
+- pending review creation
+- deduped review IDs on rerun
 
 The suite is meant to prove current policy boundaries without mutating your real `~/.agent-jail/policy.json`.

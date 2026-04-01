@@ -24,6 +24,7 @@
 - Added interpreter payload analysis for Python, shell, Ruby, and Perl so JIT reviews and approved rules target semantic script behavior instead of launcher noise like `sandbox-exec *`.
 - Added broker-side read-scope enforcement for explicit file reads so low-risk tools and interpreted scripts can still be denied when they target paths outside configured readable roots.
 - Added a manual shell-based policy validation suite for non-destructive edge cases such as repo reads, system-file reads, relative escapes, `/dev/fd/*`, and conditional `/proc` probes.
+- Extended the manual validation suite with standardized stub-JIT cases for auto-allow, pending-review, and reject behavior.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.

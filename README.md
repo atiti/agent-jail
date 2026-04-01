@@ -114,6 +114,7 @@ Run the manual edge-case validation suite:
 ```bash
 bash scripts/manual_policy_suite.sh --list
 bash scripts/manual_policy_suite.sh
+bash scripts/manual_policy_suite.sh --mode jit
 ```
 
 ## How it works
