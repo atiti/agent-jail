@@ -129,6 +129,27 @@ class ProxyTests(unittest.TestCase):
         self.assertTrue(any(event["action"] == "allow" and event["category"] == "network" for event in events))
         self.assertTrue(any("127.0.0.1" in event["raw"] for event in events))
 
+    def test_socks5_connect_failure_returns_error_reply(self):
+        policy = ProxyPolicy(
+            [
+                {"kind": "network", "host": "127.0.0.1", "port": 9, "scheme": "tcp", "allow": True},
+            ],
+            default_allow=False,
+        )
+        server, _ = start_socks_proxy(policy)
+        proxy_port = server.server_address[1]
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"\x05\x01\x00")
+                self.assertEqual(client.recv(2), b"\x05\x00")
+                request = b"\x05\x01\x00\x01" + socket.inet_aton("127.0.0.1") + (9).to_bytes(2, "big")
+                client.sendall(request)
+                response = client.recv(10)
+                self.assertEqual(response[:2], b"\x05\x05")
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_http_proxy_emits_deny_event(self):
         with tempfile.TemporaryDirectory() as tmp:
             sink = EventSink(os.path.join(tmp, "events.jsonl"))

@@ -222,10 +222,17 @@ def make_socks_proxy_server(host, port, policy, event_sink=None):
                     request.sendall(b"\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00")
                     return
                 _emit_proxy_event(event_sink, "allow", "socks5", "CONNECT", host_name, port_num, "tcp", verdict["reason"])
-                upstream = socket.create_connection((host_name, port_num), timeout=10)
+                try:
+                    upstream = socket.create_connection((host_name, port_num), timeout=10)
+                    upstream.settimeout(None)
+                except OSError:
+                    _emit_proxy_event(event_sink, "deny", "socks5", "CONNECT", host_name, port_num, "tcp", "connect-error")
+                    request.sendall(b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
+                    return
                 try:
                     bound_host, bound_port = upstream.getsockname()[:2]
                     request.sendall(b"\x05\x00\x00" + _pack_address(bound_host, bound_port))
+                    request.settimeout(None)
                     _relay(request, upstream)
                 finally:
                     upstream.close()
