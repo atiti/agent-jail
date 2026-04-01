@@ -47,13 +47,13 @@ JIT_TEMPLATES=()
 
 usage() {
   cat <<'EOF'
-Usage: scripts/manual_policy_suite.sh [--list] [--mode deterministic|jit|all] [--keep-state] [--home <path>]
+Usage: scripts/manual_policy_suite.sh [--list] [--mode deterministic|jit|live-azure|all] [--keep-state] [--home <path>]
 
 Runs a manual non-destructive policy smoke suite against agent-jail.
 
 Options:
   --list          Print the cases without executing them
-  --mode <mode>   Run deterministic, jit, or all cases (default: all)
+  --mode <mode>   Run deterministic, jit, live-azure, or all cases (default: all)
   --keep-state    Keep the temporary AGENT_JAIL_HOME directory after the run
   --home <path>   Use an explicit AGENT_JAIL_HOME instead of a temporary one
 EOF
@@ -158,7 +158,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "${MODE}" in
-  list|deterministic|jit|all) ;;
+  list|deterministic|jit|live-azure|all) ;;
   *)
     echo "invalid mode: ${MODE}" >&2
     exit 2
@@ -277,6 +277,33 @@ EOF
 }
 EOF
       ;;
+    live-azure)
+      cat > "${home}/config.json" <<EOF
+{
+  "filesystem": {
+    "read_only_roots": ["~/build"],
+    "write_roots": ["~/workspace"],
+    "deny_read_patterns": [
+      "~/build/**/.env",
+      "~/build/**/.env.*",
+      "~/build/**/secrets/**"
+    ]
+  },
+  "llm_policy": {
+    "provider": "azure_openai",
+    "model": "${AZURE_OPENAI_MODEL:-gpt-5.4}",
+    "endpoint_env": "AZURE_OPENAI_ENDPOINT",
+    "api_key_env": "AZURE_OPENAI_API_KEY",
+    "deployment_env": "AZURE_OPENAI_DEPLOYMENT",
+    "api_version": "${AZURE_OPENAI_API_VERSION:-2024-10-21}",
+    "jit_enabled": true,
+    "jit_auto_apply_low_risk": true,
+    "jit_timeout_ms": ${AZURE_OPENAI_JIT_TIMEOUT_MS:-3000},
+    "confidence_threshold": ${AZURE_OPENAI_JIT_CONFIDENCE:-0.8}
+  }
+}
+EOF
+      ;;
     *)
       echo "unknown profile: ${profile}" >&2
       exit 2
@@ -372,6 +399,9 @@ run_jit_case() {
   local profile="jit-${jit_mode}"
   local home
   eval "cmd=( ${serialized} )"
+  if [ "${jit_mode}" = "live-azure" ]; then
+    profile="live-azure"
+  fi
   home=$(profile_home "${profile}")
 
   if [ "${MODE}" = "list" ]; then
@@ -427,6 +457,20 @@ run_jit_case() {
         result="PASS"
       fi
       ;;
+    live-azure)
+      if [ "${status}" -eq 0 ]; then
+        has_rule=$(AGENT_JAIL_EXPECTED_TEMPLATE="${template}" policy_query "${home}" $'import os\nprint(any(rule.get("constraints", {}).get("template") == os.environ["AGENT_JAIL_EXPECTED_TEMPLATE"] for rule in data.get("rules", [])))')
+        if [ "${has_rule}" = "True" ]; then
+          result="PASS"
+        fi
+      elif [[ "${output}" == *"jit-review-required["* ]]; then
+        review_id=$(printf '%s' "${output}" | sed -n 's/.*jit-review-required\[\([^]]*\)\].*/\1/p' | head -n 1)
+        template_ok=$(AGENT_JAIL_EXPECTED_TEMPLATE="${template}" AGENT_JAIL_REVIEW_ID="${review_id}" policy_query "${home}" $'import os\nitems = [item for item in data.get("pending_reviews", []) if item.get("id") == os.environ["AGENT_JAIL_REVIEW_ID"]]\nprint(bool(items and items[0].get("template") == os.environ["AGENT_JAIL_EXPECTED_TEMPLATE"]))')
+        if [ "${template_ok}" = "True" ]; then
+          result="PASS"
+        fi
+      fi
+      ;;
     *)
       echo "unknown jit mode: ${jit_mode}" >&2
       exit 2
@@ -463,6 +507,7 @@ add_case "observe_dmesg" "observe" "observability" "current model behavior for k
 add_jit_case "jit_python_auto_allow" "allow" "stub JIT auto-allows a semantic python inspection rule and persists it" "python read-only subprocess script" python3 -c "import subprocess; subprocess.run(['tree', '-L', '2'])"
 add_jit_case "jit_python_review" "ask" "stub JIT creates one deduped pending review with the semantic python template" "python read-only subprocess script" python3 -c "import subprocess; subprocess.run(['tree', '-L', '2'])"
 add_jit_case "jit_tree_reject" "reject" "stub JIT explicit reject denies the command without creating an allow rule" "tree *" tree -L 2
+add_jit_case "live_python_semantic" "live-azure" "live Azure JIT should either auto-allow or create a semantic review for a low-risk python inspection script" "python read-only subprocess script" python3 -c "import subprocess; subprocess.run(['tree', '-L', '2'])"
 
 print_header
 
@@ -486,7 +531,21 @@ fi
 
 if [ "${MODE}" = "all" ] || [ "${MODE}" = "jit" ]; then
   for ((i=0; i<${#JIT_NAMES[@]}; i++)); do
-    run_jit_case "${i}"
+    if [ "${JIT_MODES[${i}]}" != "live-azure" ]; then
+      run_jit_case "${i}"
+    fi
+  done
+fi
+
+if [ "${MODE}" = "live-azure" ]; then
+  if [ -z "${AZURE_OPENAI_ENDPOINT:-}" ] || [ -z "${AZURE_OPENAI_API_KEY:-}" ] || [ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]; then
+    echo "live-azure mode requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT" >&2
+    exit 2
+  fi
+  for ((i=0; i<${#JIT_NAMES[@]}; i++)); do
+    if [ "${JIT_MODES[${i}]}" = "live-azure" ]; then
+      run_jit_case "${i}"
+    fi
   done
 fi
 

@@ -115,6 +115,7 @@ Run the manual edge-case validation suite:
 bash scripts/manual_policy_suite.sh --list
 bash scripts/manual_policy_suite.sh
 bash scripts/manual_policy_suite.sh --mode jit
+bash scripts/manual_policy_suite.sh --mode live-azure
 ```
 
 ## How it works
