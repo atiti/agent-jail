@@ -43,27 +43,38 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def _relay(left, right):
     sockets = [left, right]
+    peer = {left: right, right: left}
+    labels = {left: "left", right: "right"}
+    closed_reads = set()
     transferred = {"left_to_right": 0, "right_to_left": 0}
     while True:
         try:
-            ready, _, _ = select.select(sockets, [], [], 0.5)
+            ready, _, _ = select.select([sock for sock in sockets if sock not in closed_reads], [], [], 0.5)
         except OSError:
             return {"reason": "select-error", "bytes": transferred}
         if not ready:
+            if len(closed_reads) == len(sockets):
+                return {"reason": "both-closed", "bytes": transferred}
             continue
         for src in ready:
             try:
                 data = src.recv(65536)
             except OSError:
-                side = "left" if src is left else "right"
+                side = labels[src]
                 return {"reason": f"{side}-recv-error", "bytes": transferred}
             if not data:
-                side = "left" if src is left else "right"
-                return {"reason": f"{side}-closed", "bytes": transferred}
+                closed_reads.add(src)
+                try:
+                    peer[src].shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+                if len(closed_reads) == len(sockets):
+                    return {"reason": f"{labels[src]}-closed", "bytes": transferred}
+                continue
             try:
-                (right if src is left else left).sendall(data)
+                peer[src].sendall(data)
             except OSError:
-                side = "right" if src is left else "left"
+                side = labels[peer[src]]
                 return {"reason": f"{side}-send-error", "bytes": transferred}
             if src is left:
                 transferred["left_to_right"] += len(data)

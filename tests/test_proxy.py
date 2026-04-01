@@ -6,7 +6,7 @@ import threading
 import unittest
 
 from agent_jail.events import EventSink
-from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
+from agent_jail.proxy import ProxyPolicy, _relay, start_http_proxy, start_socks_proxy
 
 
 class ProxyTests(unittest.TestCase):
@@ -276,3 +276,32 @@ class ProxyTests(unittest.TestCase):
             upstream.close()
         thread.join(timeout=2)
         self.assertEqual(received, [b"ping"])
+
+    def test_relay_supports_half_close_and_drains_peer(self):
+        left_client, left_proxy = socket.socketpair()
+        right_proxy, right_server = socket.socketpair()
+        try:
+            outcome = {}
+
+            def run_relay():
+                outcome.update(_relay(left_proxy, right_proxy))
+
+            thread = threading.Thread(target=run_relay, daemon=True)
+            thread.start()
+
+            left_client.sendall(b"ping")
+            self.assertEqual(right_server.recv(4), b"ping")
+            left_client.shutdown(socket.SHUT_WR)
+            right_server.sendall(b"pong")
+            self.assertEqual(left_client.recv(4), b"pong")
+            right_server.shutdown(socket.SHUT_WR)
+
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(outcome["bytes"]["left_to_right"], 4)
+            self.assertEqual(outcome["bytes"]["right_to_left"], 4)
+        finally:
+            left_client.close()
+            left_proxy.close()
+            right_proxy.close()
+            right_server.close()
