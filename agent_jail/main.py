@@ -171,20 +171,38 @@ def runtime_state_path(home):
 
 def _print_event(event, json_output=False):
     if json_output:
-        print(json.dumps(event, sort_keys=True))
+        print(json.dumps(event, sort_keys=True), flush=True)
     else:
-        print(render_event(event))
+        print(render_event(event), flush=True)
+
+
+def _tail_log_from_offset(log_path, offset, json_output=False):
+    if not os.path.exists(log_path):
+        return offset
+    with open(log_path, encoding="utf-8") as handle:
+        handle.seek(offset)
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            offset = handle.tell()
+            line = line.strip()
+            if not line:
+                continue
+            _print_event(json.loads(line), json_output=json_output)
+    return offset
 
 
 def monitor_events(args):
     home = ensure_home()
     state = {}
+    state_path = runtime_state_path(home)
     if args.log or args.socket:
         log_path = os.path.abspath(os.path.expanduser(args.log)) if args.log else None
         socket_path = os.path.abspath(os.path.expanduser(args.socket)) if args.socket else None
     else:
         try:
-            state = load_runtime_state(runtime_state_path(home))
+            state = load_runtime_state(state_path)
         except FileNotFoundError:
             print("agent-jail monitor: no runtime state found", file=sys.stderr)
             return 2
@@ -202,18 +220,36 @@ def monitor_events(args):
                 _print_event(json.loads(line), json_output=args.json)
     if not args.follow:
         return 0
-    if socket_path and os.path.exists(socket_path):
-        for event in stream_event_socket(socket_path):
-            _print_event(event, json_output=args.json)
-        return 0
-    with open(log_path, encoding="utf-8") as handle:
-        handle.seek(0, os.SEEK_END)
+    if args.log or args.socket:
+        if socket_path and os.path.exists(socket_path):
+            for event in stream_event_socket(socket_path):
+                _print_event(event, json_output=args.json)
+            return 0
+        offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
         while True:
-            line = handle.readline()
-            if line:
-                _print_event(json.loads(line), json_output=args.json)
-                continue
+            offset = _tail_log_from_offset(log_path, offset, json_output=args.json)
             time.sleep(0.1)
+
+    seen_socket = socket_path
+    offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
+    while True:
+        try:
+            state = load_runtime_state(state_path)
+        except FileNotFoundError:
+            state = {}
+        current_log = state.get("events_log") or log_path
+        current_socket = state.get("events_socket")
+        if current_log != log_path:
+            log_path = current_log
+            offset = 0
+            seen_socket = None
+        offset = _tail_log_from_offset(log_path, offset, json_output=args.json)
+        if current_socket and current_socket != seen_socket and os.path.exists(current_socket):
+            seen_socket = current_socket
+            for event in stream_event_socket(current_socket):
+                _print_event(event, json_output=args.json)
+            continue
+        time.sleep(0.1)
 
 
 def suggest_rules(args):

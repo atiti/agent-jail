@@ -207,6 +207,52 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('"action": "deny"', proc.stdout)
 
+    def test_monitor_follow_switches_to_new_runtime_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            events_dir = os.path.join(tmp, "events")
+            os.makedirs(events_dir)
+            old_log = os.path.join(events_dir, "old.jsonl")
+            new_log = os.path.join(events_dir, "new.jsonl")
+            runtime_path = os.path.join(tmp, "runtime.json")
+            with open(old_log, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"read-only","raw":"git status"}\n')
+            with open(runtime_path, "w", encoding="utf-8") as handle:
+                json.dump({"active": False, "events_log": old_log, "events_socket": None}, handle)
+            proc = subprocess.Popen(
+                [CLI, "monitor", "--follow"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "AGENT_JAIL_BACKEND": "host", **env},
+            )
+            try:
+                time.sleep(0.3)
+                with open(new_log, "w", encoding="utf-8") as handle:
+                    handle.write('{"action":"allow","category":"general","raw":"tree -L 2"}\n')
+                with open(runtime_path, "w", encoding="utf-8") as handle:
+                    json.dump({"active": True, "events_log": new_log, "events_socket": None}, handle)
+                deadline = time.time() + 3
+                output = ""
+                while time.time() < deadline:
+                    line = proc.stdout.readline()
+                    if line:
+                        output += line
+                        if "tree -L 2" in output:
+                            break
+                    else:
+                        time.sleep(0.05)
+                self.assertIn("tree -L 2", output)
+            finally:
+                proc.terminate()
+                proc.wait(timeout=2)
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.stderr:
+                    proc.stderr.close()
+
     def test_suggest_rules_reads_event_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "events.jsonl")
