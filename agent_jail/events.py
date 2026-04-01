@@ -150,6 +150,7 @@ ACTION_COLORS = {
 CATEGORY_COLORS = {
     "read-only": "\033[36m",
     "policy": "\033[35m",
+    "network": "\033[34m",
     "capability": "\033[34m",
     "sensitive-delegate": "\033[31m",
     "read-scope": "\033[31m",

@@ -222,6 +222,8 @@ python3 agent-jail monitor --json
 
 `agent-jail monitor --follow` uses ANSI colors automatically on interactive terminals. Set `NO_COLOR=1` to disable color.
 
+When proxying is enabled, monitor output also includes `network` events for HTTP and SOCKS allow/deny decisions.
+
 Generate policy suggestions from observed event history:
 
 ```bash

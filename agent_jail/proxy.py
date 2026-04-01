@@ -54,6 +54,24 @@ def _relay(left, right):
             (right if src is left else left).sendall(data)
 
 
+def _emit_proxy_event(event_sink, action, transport, method, host_name, port_num, scheme, reason):
+    if not event_sink:
+        return
+    event_sink.emit(
+        {
+            "action": action,
+            "category": "network",
+            "raw": f"{transport} {method} {host_name}:{port_num} [{scheme}] ({reason})",
+            "transport": transport,
+            "method": method,
+            "host": host_name,
+            "port": port_num,
+            "scheme": scheme,
+            "reason": reason,
+        }
+    )
+
+
 def _recv_exact(stream, size):
     chunks = []
     remaining = size
@@ -77,13 +95,15 @@ def _pack_address(host, port):
     return b"\x04" + ip.packed + struct.pack("!H", port)
 
 
-def make_proxy_server(host, port, policy):
+def make_proxy_server(host, port, policy, event_sink=None):
     class Handler(http.server.BaseHTTPRequestHandler):
         def _decision(self, method, host_name, port_num, scheme="tcp"):
             verdict = policy.decide(method, host_name, port_num, scheme=scheme)
             if verdict["decision"] == "deny":
+                _emit_proxy_event(event_sink, "deny", "http", method, host_name, port_num, scheme, verdict["reason"])
                 self.send_error(403, f"blocked by agent-jail policy: {host_name}:{port_num}")
                 return None
+            _emit_proxy_event(event_sink, "allow", "http", method, host_name, port_num, scheme, verdict["reason"])
             return verdict
 
         def do_CONNECT(self):
@@ -141,7 +161,7 @@ def make_proxy_server(host, port, policy):
     return ThreadingHTTPServer((host, port), Handler)
 
 
-def make_socks_proxy_server(host, port, policy):
+def make_socks_proxy_server(host, port, policy, event_sink=None):
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             request = self.request
@@ -174,8 +194,10 @@ def make_socks_proxy_server(host, port, policy):
                     return
                 verdict = policy.decide("CONNECT", host_name, port_num, scheme="tcp")
                 if verdict["decision"] == "deny":
+                    _emit_proxy_event(event_sink, "deny", "socks5", "CONNECT", host_name, port_num, "tcp", verdict["reason"])
                     request.sendall(b"\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00")
                     return
+                _emit_proxy_event(event_sink, "allow", "socks5", "CONNECT", host_name, port_num, "tcp", verdict["reason"])
                 upstream = socket.create_connection((host_name, port_num), timeout=10)
                 try:
                     bound_host, bound_port = upstream.getsockname()[:2]
@@ -195,13 +217,13 @@ def _start_server(server):
     return server, thread
 
 
-def start_http_proxy(policy, host="127.0.0.1", port=0):
-    return _start_server(make_proxy_server(host, port, policy))
+def start_http_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
+    return _start_server(make_proxy_server(host, port, policy, event_sink=event_sink))
 
 
-def start_socks_proxy(policy, host="127.0.0.1", port=0):
-    return _start_server(make_socks_proxy_server(host, port, policy))
+def start_socks_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
+    return _start_server(make_socks_proxy_server(host, port, policy, event_sink=event_sink))
 
 
-def start_proxy(policy, host="127.0.0.1", port=0):
-    return start_http_proxy(policy, host=host, port=port)
+def start_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
+    return start_http_proxy(policy, host=host, port=port, event_sink=event_sink)

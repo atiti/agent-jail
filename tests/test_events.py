@@ -46,3 +46,8 @@ class EventTests(unittest.TestCase):
         rendered = render_event({"action": "allow", "category": "read-only", "raw": "git status"}, color=True)
         self.assertIn("\033[32m[ALLOW]\033[0m", rendered)
         self.assertIn("\033[36m[read-only]\033[0m", rendered)
+
+    def test_render_event_colors_network_category(self):
+        rendered = render_event({"action": "deny", "category": "network", "raw": "http CONNECT example.com:443"}, color=True)
+        self.assertIn("\033[31m[DENY]\033[0m", rendered)
+        self.assertIn("[network]", rendered)

@@ -651,8 +651,8 @@ def run(argv=None):
         socks_proxy_server = None
         if args.proxy:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
-            http_proxy_server, _ = start_http_proxy(policy)
-            socks_proxy_server, _ = start_socks_proxy(policy)
+            http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink)
+            socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink)
             http_proxy_url = f"http://127.0.0.1:{http_proxy_server.server_port}"
             socks_proxy_url = f"socks5://127.0.0.1:{socks_proxy_server.server_address[1]}"
             env.update(
