@@ -4,7 +4,7 @@ import time
 
 from agent_jail.broker import broker_request
 
-BLACKLISTED_WRAPPERS = {"python", "python3", "node", "agent-jail", "agent-jail-cap"}
+BLACKLISTED_WRAPPERS = {"agent-jail", "agent-jail-cap"}
 
 
 WRAPPER_TEMPLATE = """#!/bin/sh

@@ -16,14 +16,55 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 class IntegrationTests(unittest.TestCase):
-    def test_wrapper_generation_skips_python_and_node(self):
+    def test_wrapper_generation_includes_python_and_node(self):
         with tempfile.TemporaryDirectory() as tmp:
             wrapper_dir = os.path.join(tmp, "bin")
             write_wrappers(wrapper_dir, ["python", "python3", "node", "git"])
-            self.assertTrue(os.path.islink(os.path.join(wrapper_dir, "python")))
-            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "python3")))
-            self.assertFalse(os.path.exists(os.path.join(wrapper_dir, "node")))
+            self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "python")))
+            self.assertFalse(os.path.islink(os.path.join(wrapper_dir, "python")))
+            self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "python3")))
+            self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "node")))
             self.assertTrue(os.path.exists(os.path.join(wrapper_dir, "git")))
+
+    def test_wrapper_denies_top_level_python_system_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            wrapper_dir = os.path.join(tmp, "bin")
+            real_dir = os.path.join(tmp, "real")
+            repo_dir = os.path.join(tmp, "repo")
+            os.mkdir(real_dir)
+            os.mkdir(repo_dir)
+            python_path = os.path.join(real_dir, "python3")
+            with open(python_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(python_path, 0o755)
+
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(sock_path, store, mounts=[{"path": repo_dir, "mode": "rw"}])
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+
+            write_wrappers(wrapper_dir, ["python3"])
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_SOCKET": sock_path,
+                    "AGENT_JAIL_ORIG_PATH": real_dir,
+                    "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
+                }
+            )
+            proc = subprocess.run(
+                ["python3", "-c", "print(open('/etc/passwd').read())"],
+                text=True,
+                capture_output=True,
+                env=env,
+                cwd=repo_dir,
+            )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("outside allowed roots", proc.stderr)
+        self.assertNotIn("SHOULD-NOT-RUN", proc.stdout)
 
     def test_wrapper_allows_safe_git_status(self):
         with tempfile.TemporaryDirectory() as tmp:
