@@ -1,8 +1,10 @@
 # agent-jail
 
+[![CI](https://github.com/atiti/agent-jail/actions/workflows/ci.yml/badge.svg)](https://github.com/atiti/agent-jail/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-6f42c1.svg)](#platform-model)
 [![Tests](https://img.shields.io/badge/tests-unittest-green.svg)](#verification)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 `agent-jail` is a brokered runtime for agent CLIs such as `codex` and `claude`.
 
@@ -294,6 +296,7 @@ Limit:
 - [Security policy](/Users/attilasukosd/build/agent-jail/SECURITY.md)
 - [Support guide](/Users/attilasukosd/build/agent-jail/SUPPORT.md)
 - [Code of conduct](/Users/attilasukosd/build/agent-jail/CODE_OF_CONDUCT.md)
+- [Architecture overview](/Users/attilasukosd/build/agent-jail/docs/architecture.md)
 
 ## Project status
 
@@ -307,7 +310,7 @@ Recommended reading:
 
 ## Open source notes
 
-- No license file has been added in this pass.
+- MIT licensed.
 - Repository-specific or private environment assumptions should stay in local config, not in tracked files.
 
 ## Working with secrets, ops, and browsers

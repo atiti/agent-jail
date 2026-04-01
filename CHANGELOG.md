@@ -33,6 +33,7 @@
 - Added `live-azure-all` to the manual suite so multiple JIT-eligible commands can be exercised against the real Azure backend, and made the Azure timeout default configurable instead of hard-overridden.
 - Added a test-only `jit_force_low_risk` option so the live Azure suite can route low-risk read-only commands through the JIT engine instead of bypassing it via deterministic allow rules.
 - Added open-source repo scaffolding: contributing guide, security policy, support guide, code of conduct, issue templates, PR template, and a clearer README with quick-start and verification sections.
+- Added an MIT license, a basic GitHub Actions CI workflow, and a short architecture overview for first-time contributors.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.
