@@ -75,7 +75,7 @@ TARGET_ENV_PROFILES = {
 }
 
 
-def apply_target_env_profile(env, target_argv):
+def apply_target_env_profile(env, target_argv, proxy_mode=None):
     if not target_argv:
         return env
     target_name = os.path.basename(target_argv[0])
@@ -86,6 +86,9 @@ def apply_target_env_profile(env, target_argv):
     for key in profile["clear"]:
         env.pop(key, None)
     env.update(preserved)
+    if target_name == "codex" and proxy_mode == "codex-http":
+        for key in ("ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+            env.pop(key, None)
     return env
 
 
@@ -191,8 +194,9 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run")
     run.add_argument("--proxy", action="store_true")
-    run.add_argument("--proxy-mode", choices=["http", "socks", "hybrid"], default="hybrid")
+    run.add_argument("--proxy-mode", choices=["http", "socks", "hybrid", "codex-http"], default="hybrid")
     run.add_argument("--proxy-debug", action="store_true")
+    run.add_argument("--print-launch-env", action="store_true")
     run.add_argument("--deny-network-by-default", action="store_true")
     run.add_argument("--project", action="append", default=[])
     run.add_argument("--allow-write", action="append", default=[])
@@ -709,7 +713,7 @@ def run(argv=None):
             env["AGENT_JAIL_HTTP_PROXY"] = http_proxy_url
             env["AGENT_JAIL_SOCKS_PROXY"] = socks_proxy_url
             proxy_mode = args.proxy_mode or "hybrid"
-            if proxy_mode in {"http", "hybrid"}:
+            if proxy_mode in {"http", "hybrid", "codex-http"}:
                 env["HTTP_PROXY"] = http_proxy_url
                 env["HTTPS_PROXY"] = http_proxy_url
             else:
@@ -729,7 +733,39 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
-        apply_target_env_profile(env, target_argv)
+        apply_target_env_profile(env, target_argv, proxy_mode=args.proxy_mode if args.proxy else None)
+        if args.print_launch_env:
+            print(
+                json.dumps(
+                    {
+                        key: env.get(key)
+                        for key in sorted(
+                            {
+                                "HTTP_PROXY",
+                                "HTTPS_PROXY",
+                                "ALL_PROXY",
+                                "SOCKS_PROXY",
+                                "SSL_CERT_FILE",
+                                "SSL_CERT_DIR",
+                                "REQUESTS_CA_BUNDLE",
+                                "CURL_CA_BUNDLE",
+                                "NODE_EXTRA_CA_CERTS",
+                                "http_proxy",
+                                "https_proxy",
+                                "all_proxy",
+                                "socks_proxy",
+                                "AGENT_JAIL_HTTP_PROXY",
+                                "AGENT_JAIL_SOCKS_PROXY",
+                            }
+                        )
+                        if key in env
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
         cmd = build_command(backend, target_argv, os.getcwd(), env)
         try:
             proc = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
