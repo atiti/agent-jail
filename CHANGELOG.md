@@ -7,7 +7,7 @@
 - Updated `agent-jail run --proxy` to export HTTP proxy variables plus `SOCKS_PROXY`, while avoiding a forced global `ALL_PROXY` override for better client compatibility.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.
-- Stopped injecting OpenSSL-style `SSL_CERT_*` overrides on macOS so native TLS clients such as Codex use the system keychain instead of misreading Homebrew certificate paths.
+- On macOS, limited proxy-session certificate overrides to `SSL_CERT_FILE` only, avoiding the OpenSSL cert-directory export that was breaking Codex proxy TLS while still providing a PEM bundle when native roots are unavailable.
 
 - Added the initial `agent-jail` CLI launcher.
 - Added command interception through generated PATH wrappers and a local broker.

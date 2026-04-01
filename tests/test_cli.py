@@ -628,15 +628,18 @@ class CLITests(unittest.TestCase):
         self.assertEqual(env["SSL_CERT_FILE"], cafile)
         self.assertEqual(env["SSL_CERT_DIR"], capath)
 
-    def test_discover_cert_env_skips_default_verify_paths_on_macos(self):
+    def test_discover_cert_env_uses_only_cafile_on_macos(self):
         from agent_jail.main import discover_cert_env
 
-        fake = mock.Mock(cafile="/tmp/cert.pem", capath="/tmp/certs")
-        with mock.patch("agent_jail.main.sys.platform", "darwin"), mock.patch(
-            "agent_jail.main.ssl.get_default_verify_paths", return_value=fake
-        ):
-            env = discover_cert_env()
-        self.assertEqual(env, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            cafile = os.path.join(tmp, "cert.pem")
+            open(cafile, "w", encoding="utf-8").close()
+            fake = mock.Mock(cafile=cafile, capath=os.path.join(tmp, "certs"))
+            with mock.patch("agent_jail.main.sys.platform", "darwin"), mock.patch(
+                "agent_jail.main.ssl.get_default_verify_paths", return_value=fake
+            ):
+                env = discover_cert_env()
+        self.assertEqual(env, {"SSL_CERT_FILE": cafile})
 
     def test_discover_tty_env_collects_ctermid_and_ttynames(self):
         from agent_jail.main import discover_tty_env
