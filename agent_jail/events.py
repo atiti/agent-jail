@@ -90,13 +90,27 @@ class EventSink:
             pass
 
 
-def render_event(event):
+def render_event(event, color=False):
     action = event.get("action", "EVENT").upper()
     category = event.get("category")
     raw = event.get("raw") or event.get("message") or ""
+    timestamp = event.get("timestamp", "")
+    prefix = ""
+    if timestamp:
+        short = timestamp.replace("T", " ").replace("+00:00", "Z")
+        prefix = f"{short} "
     if category:
-        return f"[{action}][{category}] {raw}"
-    return f"[{action}] {raw}"
+        if color:
+            action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
+            category_text = f"{CATEGORY_COLORS.get(category, '')}[{category}]{ANSI_RESET}"
+            prefix_text = f"{ANSI_DIM}{prefix}{ANSI_RESET}" if prefix else ""
+            return f"{prefix_text}{action_text}{category_text} {raw}"
+        return f"{prefix}[{action}][{category}] {raw}"
+    if color:
+        action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
+        prefix_text = f"{ANSI_DIM}{prefix}{ANSI_RESET}" if prefix else ""
+        return f"{prefix_text}{action_text} {raw}"
+    return f"{prefix}[{action}] {raw}"
 
 
 def load_runtime_state(path):
@@ -126,3 +140,19 @@ def stream_event_socket(socket_path):
                 if not line:
                     continue
                 yield json.loads(line.decode("utf-8"))
+ANSI_RESET = "\033[0m"
+ANSI_DIM = "\033[2m"
+ACTION_COLORS = {
+    "ALLOW": "\033[32m",
+    "DENY": "\033[31m",
+    "ASK": "\033[33m",
+}
+CATEGORY_COLORS = {
+    "read-only": "\033[36m",
+    "policy": "\033[35m",
+    "capability": "\033[34m",
+    "sensitive-delegate": "\033[31m",
+    "read-scope": "\033[31m",
+    "agent-launch": "\033[32m",
+    "capability-bridge": "\033[34m",
+}

@@ -81,6 +81,17 @@ def discover_tty_env():
     return {"AGENT_JAIL_TTY_PATHS": json.dumps(sorted(paths))}
 
 
+def discover_auxiliary_read_roots():
+    roots = []
+    for path in (
+        os.path.join(os.path.expanduser("~"), ".codex"),
+        os.path.join(os.path.expanduser("~"), ".agents"),
+    ):
+        if os.path.exists(path):
+            roots.append(path)
+    return roots
+
+
 def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True):
     os.makedirs(home, exist_ok=True)
     mounts = []
@@ -181,7 +192,8 @@ def _print_event(event, json_output=False):
     if json_output:
         print(json.dumps(event, sort_keys=True), flush=True)
     else:
-        print(render_event(event), flush=True)
+        color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+        print(render_event(event, color=color), flush=True)
 
 
 def _tail_log_from_offset(log_path, offset, json_output=False):
@@ -407,7 +419,7 @@ def run(argv=None):
         session = resolve_session_capabilities(
             projects=projects or [cwd],
             allow_write=allow_write or [cwd],
-            read_only_roots=config.get("filesystem", {}).get("read_only_roots", []) + run_defaults.get("read_only_roots", []),
+            read_only_roots=config.get("filesystem", {}).get("read_only_roots", []) + run_defaults.get("read_only_roots", []) + discover_auxiliary_read_roots(),
             write_roots=config.get("filesystem", {}).get("write_roots", []) + run_defaults.get("write_roots", []),
             skills_proxy=True,
             ops_exec=allow_ops,

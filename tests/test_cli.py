@@ -98,6 +98,41 @@ class CLITests(unittest.TestCase):
         self.assertIn({"path": os.path.realpath(workspace_root), "mode": "rw"}, mounts)
         self.assertTrue(capabilities["ops_exec"])
 
+    def test_run_includes_local_skill_roots_as_read_only_mounts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            home = os.path.join(tmp, "home")
+            real_home = os.path.join(tmp, "real-home")
+            os.makedirs(repo)
+            os.makedirs(home)
+            os.makedirs(os.path.join(real_home, ".codex"))
+            os.makedirs(os.path.join(real_home, ".agents"))
+            old_home = os.environ.get("HOME")
+            os.environ["HOME"] = real_home
+            try:
+                proc = subprocess.run(
+                    [
+                        CLI,
+                        "run",
+                        sys.executable,
+                        "-c",
+                        "import json, os; print(json.dumps(json.loads(os.environ['AGENT_JAIL_MOUNTS']), sort_keys=True))",
+                    ],
+                    cwd=repo,
+                    text=True,
+                    capture_output=True,
+                    env={**os.environ, "AGENT_JAIL_BACKEND": "host", "AGENT_JAIL_HOME": home},
+                )
+            finally:
+                if old_home is None:
+                    del os.environ["HOME"]
+                else:
+                    os.environ["HOME"] = old_home
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        mounts = {os.path.realpath(item["path"]): item["mode"] for item in json.loads(proc.stdout.strip())}
+        self.assertEqual(mounts[os.path.realpath(os.path.join(real_home, ".codex"))], "ro")
+        self.assertEqual(mounts[os.path.realpath(os.path.join(real_home, ".agents"))], "ro")
+
     def test_config_show_prints_current_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = os.path.join(tmp, "config.json")

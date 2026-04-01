@@ -37,6 +37,24 @@ def _delegate_env(delegate):
 
 def _delegate_command_argv(delegate, command):
     argv = list(command)
+    cwd = delegate.get("_cwd")
+    auto_inventory = bool(delegate.get("auto_inventory_from_cwd"))
+    if auto_inventory and command:
+        tool = os.path.basename(command[0])
+        inventory_dir = os.path.join(cwd or "", "inventory") if cwd else ""
+        if tool in {"privateinfractl", "marksterctl"} and cwd and os.path.isdir(inventory_dir):
+            has_ops_root = "--ops-root" in argv
+            has_inventory_dir = "--inventory-dir" in argv
+            defaults = []
+            if not has_ops_root:
+                defaults.extend(["--ops-root", cwd])
+            if not has_inventory_dir:
+                defaults.extend(["--inventory-dir", inventory_dir])
+            if defaults:
+                if delegate.get("strip_tool_name") and argv:
+                    argv = [argv[0], *defaults, *argv[1:]]
+                else:
+                    argv = [argv[0], *defaults, *argv[1:]]
     if delegate.get("strip_tool_name") and argv:
         argv = argv[1:]
     return argv

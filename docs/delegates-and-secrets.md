@@ -18,6 +18,7 @@
       "name": "ops",
       "mode": "execute",
       "allowed_tools": ["privateinfractl", "./scripts/unifi-api.sh"],
+      "auto_inventory_from_cwd": true,
       "set_env": {
         "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
       }
@@ -37,4 +38,5 @@ agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
 
 - `set_env` is local configuration and should not be committed to a public repo.
 - Delegates restore the host user's `HOME` and original `PATH` automatically.
+- If `auto_inventory_from_cwd` is enabled and the current working directory contains `inventory/`, delegated `privateinfractl` and `marksterctl` commands inherit `--ops-root <cwd> --inventory-dir <cwd>/inventory`.
 - The secret files remain unreadable from inside the sandboxed session itself.

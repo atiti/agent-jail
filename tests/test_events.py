@@ -41,3 +41,8 @@ class EventTests(unittest.TestCase):
             render_event({"action": "allow", "category": "read-only", "raw": "git status"}),
             "[ALLOW][read-only] git status",
         )
+
+    def test_render_event_can_use_color(self):
+        rendered = render_event({"action": "allow", "category": "read-only", "raw": "git status"}, color=True)
+        self.assertIn("\033[32m[ALLOW]\033[0m", rendered)
+        self.assertIn("\033[36m[read-only]\033[0m", rendered)

@@ -93,6 +93,13 @@ def _delegate_executor_tools(delegates):
     return {os.path.basename(path) for path in _delegate_executor_paths(delegates)}
 
 
+def _with_delegate_context(delegate, payload=None):
+    item = dict(delegate or {})
+    if payload and payload.get("cwd"):
+        item["_cwd"] = payload.get("cwd")
+    return item
+
+
 def normalize(argv):
     tool = os.path.basename(argv[0]) if argv else ""
     flags = []
@@ -723,19 +730,19 @@ class BrokerServer:
         if name == "delegate":
             payload = request.get("payload", {})
             delegate_name = payload.get("name", "")
-            delegate = self.delegates.get(delegate_name)
+            delegate = _with_delegate_context(self.delegates.get(delegate_name), payload)
             if delegate and delegate.get("mode") == "execute" and wfile is not None:
-                self._log("ALLOW", f"capability {name}", "capability")
+                self._log("ALLOW", f"capability {name}", "capability", kind="capability", capability=name)
                 self._write_frame(wfile, {"decision": "allow", "reason": "capability allowed", "stream": True})
                 stream_delegate_proxy(
                     self.capabilities,
-                    self.delegates,
+                    {**self.delegates, delegate_name: delegate},
                     delegate_name,
                     payload.get("command", []),
                     lambda frame: self._write_frame(wfile, frame),
                 )
                 return None
-            result = run_delegate_proxy(self.capabilities, self.delegates, delegate_name, payload.get("command", []))
+            result = run_delegate_proxy(self.capabilities, {**self.delegates, delegate_name: delegate}, delegate_name, payload.get("command", []))
         elif name == "browser_automation":
             result = run_browser_proxy(self.capabilities, request.get("payload", {}))
         elif name == "skills_proxy":
@@ -746,6 +753,11 @@ class BrokerServer:
         return {"decision": "allow", "reason": "capability allowed", "result": result}
 
     def _log(self, tag, raw, category=None, **extra):
+        if tag == "ALLOW" and extra.get("kind") == "capability" and extra.get("capability") == "delegate":
+            return
+        if raw.startswith("dirname ") or raw.startswith("dirname -- "):
+            if ".agent-jail/bin/agent-jail-cap" in raw:
+                return
         event = {"action": tag.lower(), "category": category, "raw": raw}
         event.update({key: value for key, value in extra.items() if value is not None})
         if self.event_sink:

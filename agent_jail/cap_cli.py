@@ -80,9 +80,9 @@ def _request_delegate_stream(payload):
 def main(argv=None):
     args = parse_args(argv)
     if args.command == "delegate":
-        return _request_delegate_stream({"type": "capability", "name": "delegate", "payload": {"name": args.name, "command": args.argv}})
+        return _request_delegate_stream({"type": "capability", "name": "delegate", "payload": {"name": args.name, "command": args.argv, "cwd": os.getcwd()}})
     if args.command == "ops":
-        return _request_delegate_stream({"type": "capability", "name": "delegate", "payload": {"name": "ops", "command": args.argv}})
+        return _request_delegate_stream({"type": "capability", "name": "delegate", "payload": {"name": "ops", "command": args.argv, "cwd": os.getcwd()}})
     if args.command == "skill":
         return _request(
             {

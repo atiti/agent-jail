@@ -152,6 +152,7 @@ Delegated commands run outside the sandbox with the host user's `HOME` and origi
       "name": "ops",
       "mode": "execute",
       "allowed_tools": ["privateinfractl", "./scripts/unifi-api.sh"],
+      "auto_inventory_from_cwd": true,
       "set_env": {
         "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
       }
@@ -168,6 +169,14 @@ agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
 ```
 
 See [docs/delegates-and-secrets.md](docs/delegates-and-secrets.md) for the full pattern.
+
+If `auto_inventory_from_cwd` is enabled and the current repo has an `inventory/` directory, delegated `privateinfractl` and `marksterctl` commands automatically inherit:
+
+```bash
+--ops-root <cwd> --inventory-dir <cwd>/inventory
+```
+
+That removes the need to repeat those flags for repo-local infra work.
 
 Run with the built-in proxy enabled:
 
@@ -189,6 +198,8 @@ python3 agent-jail monitor
 python3 agent-jail monitor --follow
 python3 agent-jail monitor --json
 ```
+
+`agent-jail monitor --follow` uses ANSI colors automatically on interactive terminals. Set `NO_COLOR=1` to disable color.
 
 Generate policy suggestions from observed event history:
 

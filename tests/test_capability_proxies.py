@@ -85,6 +85,37 @@ class CapabilityProxyTests(unittest.TestCase):
                 )
         self.assertEqual(mocked_run.call_args.kwargs["env"]["SECRET_KEY_FILE"], "/Users/example/keys.txt")
 
+    def test_delegate_auto_inventory_defaults_from_cwd(self):
+        with mock.patch("agent_jail.delegate_proxy.os.path.isdir", return_value=True):
+            result = run_delegate_proxy(
+                {"delegates": ["ops"]},
+                {
+                    "ops": {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["privateinfractl"],
+                        "strip_tool_name": True,
+                        "auto_inventory_from_cwd": True,
+                        "_cwd": "/repo",
+                    }
+                },
+                "ops",
+                ["privateinfractl", "status", "--service", "svc"],
+            )
+        self.assertEqual(
+            result["delegated_command"],
+            [
+                "/usr/local/bin/delegate-exec",
+                "--ops-root",
+                "/repo",
+                "--inventory-dir",
+                "/repo/inventory",
+                "status",
+                "--service",
+                "svc",
+            ],
+        )
+
     def test_browser_automation_routes_to_host_proxy(self):
         result = run_browser_proxy({"browser_automation": True}, {"tool": "peekaboo", "action": "screenshot"})
         self.assertEqual(result["status"], "ok")

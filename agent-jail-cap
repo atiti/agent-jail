@@ -1,6 +1,10 @@
 #!/bin/sh
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+case "$0" in
+  */*) SCRIPT_PARENT="${0%/*}" ;;
+  *) SCRIPT_PARENT="." ;;
+esac
+SCRIPT_DIR="$(CDPATH= cd -- "$SCRIPT_PARENT" && pwd)"
 REPO_ROOT="${AGENT_JAIL_SOURCE_ROOT:-$SCRIPT_DIR}"
 PYTHON_BIN="${AGENT_JAIL_PYTHON:-python3}"
 

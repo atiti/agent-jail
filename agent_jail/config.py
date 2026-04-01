@@ -63,6 +63,7 @@ def load_config(path=None):
         if not isinstance(set_env, dict):
             set_env = {}
         delegate["set_env"] = {str(key): str(value) for key, value in set_env.items() if str(key).strip()}
+        delegate["auto_inventory_from_cwd"] = bool(delegate.get("auto_inventory_from_cwd", False))
         normalized_delegates.append(delegate)
     data["delegates"] = normalized_delegates
     filesystem = data.get("filesystem")
