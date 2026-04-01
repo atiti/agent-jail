@@ -73,8 +73,10 @@ def dispatch_main():
         raise SystemExit(126)
     real_binary = resolve_real_binary(command)
     session_proxy_env = os.environ.get("AGENT_JAIL_SESSION_PROXY_ENV")
-    top_level_command = os.environ.pop("AGENT_JAIL_TOP_LEVEL_COMMAND", "")
-    if session_proxy_env and command != top_level_command:
+    bypass_hops = int(os.environ.get("AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS", "0") or "0")
+    if bypass_hops > 0:
+        os.environ["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bypass_hops - 1)
+    elif session_proxy_env:
         # Allow the parent agent to stay unproxied while wrapped subprocesses
         # inherit the session-managed proxy/cert environment.
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):

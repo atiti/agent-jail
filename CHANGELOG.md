@@ -12,6 +12,7 @@
 - Adjusted `codex-http` to preserve `SSL_CERT_FILE` while still stripping SOCKS and `SSL_CERT_DIR`, and hardened the HTTP proxy handler to ignore client reset noise during request-line reads.
 - Added `--proxy-mode codex-http-native` to force a final A/B path for Codex on macOS by keeping HTTP proxy vars while stripping all explicit cert overrides.
 - Added `--proxy-commands-only` so an agent like Codex can launch without proxy env while wrapped subprocesses inside the session still inherit the session-managed proxy settings.
+- Fixed `--proxy-commands-only` for Codex's `codex -> node` bootstrap chain so the app stays unproxied while later wrapped child commands still pick up the session proxy env.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.
