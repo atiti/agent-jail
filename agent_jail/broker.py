@@ -16,6 +16,7 @@ from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
 BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
+AGENT_TOOLS = {"codex", "claude"}
 READ_ONLY_TOOLS = {"pwd", "ls", "cat", "rg", "grep", "find", "ruby", "head", "printenv"}
 MUTATING_TOOLS = {"mv", "cp", "mkdir", "touch", "sed", "tee"}
 DEFAULT_SENSITIVE_ABSOLUTE_PATHS = {
@@ -377,6 +378,12 @@ def classify(intent, argv, delegates=None, context=None):
             return {"risk": "low", "reason": "read-only sort", "category": "read-only"}
     if tool in {"chmod", "chown"} or raw.startswith("rm -rf"):
         return {"risk": "high", "reason": "destructive mutation", "category": "destructive"}
+    if tool in AGENT_TOOLS and "--dangerously-bypass-approvals-and-sandbox" in argv[1:]:
+        return {
+            "risk": "low",
+            "reason": "agent launch under agent-jail outer control",
+            "category": "agent-launch",
+        }
     if tool in READ_ONLY_TOOLS:
         return {"risk": "low", "reason": "read-only tool", "category": "read-only"}
     if tool in MUTATING_TOOLS:

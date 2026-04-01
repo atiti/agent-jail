@@ -240,3 +240,21 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "deny")
         self.assertIn("outside allowed roots", result["reason"])
+
+    def test_codex_bypass_flag_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["codex", "--dangerously-bypass-approvals-and-sandbox"],
+                    "raw": "codex --dangerously-bypass-approvals-and-sandbox",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")

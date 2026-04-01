@@ -153,3 +153,10 @@ class ClassifierTests(unittest.TestCase):
         verdict = classify(intent, argv, delegates=self.delegates)
         self.assertEqual(verdict["risk"], "critical")
         self.assertEqual(verdict["category"], "privilege-escalation")
+
+    def test_classify_codex_bypass_flag_as_agent_launch(self):
+        argv = ["codex", "--dangerously-bypass-approvals-and-sandbox"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "agent-launch")
