@@ -192,6 +192,7 @@ def parse_args(argv=None):
     run = sub.add_parser("run")
     run.add_argument("--proxy", action="store_true")
     run.add_argument("--proxy-mode", choices=["http", "socks", "hybrid"], default="hybrid")
+    run.add_argument("--proxy-debug", action="store_true")
     run.add_argument("--deny-network-by-default", action="store_true")
     run.add_argument("--project", action="append", default=[])
     run.add_argument("--allow-write", action="append", default=[])
@@ -701,8 +702,8 @@ def run(argv=None):
         socks_proxy_server = None
         if args.proxy:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
-            http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink)
-            socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink)
+            http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
+            socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
             http_proxy_url = f"http://127.0.0.1:{http_proxy_server.server_port}"
             socks_proxy_url = f"socks5://127.0.0.1:{socks_proxy_server.server_address[1]}"
             env["AGENT_JAIL_HTTP_PROXY"] = http_proxy_url

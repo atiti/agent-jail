@@ -43,24 +43,32 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def _relay(left, right):
     sockets = [left, right]
+    transferred = {"left_to_right": 0, "right_to_left": 0}
     while True:
         try:
             ready, _, _ = select.select(sockets, [], [], 0.5)
         except OSError:
-            return
+            return {"reason": "select-error", "bytes": transferred}
         if not ready:
             continue
         for src in ready:
             try:
                 data = src.recv(65536)
             except OSError:
-                return
+                side = "left" if src is left else "right"
+                return {"reason": f"{side}-recv-error", "bytes": transferred}
             if not data:
-                return
+                side = "left" if src is left else "right"
+                return {"reason": f"{side}-closed", "bytes": transferred}
             try:
                 (right if src is left else left).sendall(data)
             except OSError:
-                return
+                side = "right" if src is left else "left"
+                return {"reason": f"{side}-send-error", "bytes": transferred}
+            if src is left:
+                transferred["left_to_right"] += len(data)
+            else:
+                transferred["right_to_left"] += len(data)
 
 
 def _emit_proxy_event(event_sink, action, transport, method, host_name, port_num, scheme, reason):
@@ -77,6 +85,23 @@ def _emit_proxy_event(event_sink, action, transport, method, host_name, port_num
             "port": port_num,
             "scheme": scheme,
             "reason": reason,
+        }
+    )
+
+
+def _emit_proxy_debug(event_sink, transport, stage, host_name, port_num, detail):
+    if not event_sink:
+        return
+    event_sink.emit(
+        {
+            "action": "info",
+            "category": "network",
+            "raw": f"{transport} {stage} {host_name}:{port_num} {detail}",
+            "transport": transport,
+            "stage": stage,
+            "host": host_name,
+            "port": port_num,
+            "detail": detail,
         }
     )
 
@@ -104,7 +129,7 @@ def _pack_address(host, port):
     return b"\x04" + ip.packed + struct.pack("!H", port)
 
 
-def make_proxy_server(host, port, policy, event_sink=None):
+def make_proxy_server(host, port, policy, event_sink=None, debug=False):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -122,6 +147,8 @@ def make_proxy_server(host, port, policy, event_sink=None):
             port_num = int(port_text or "443")
             if not self._decision("CONNECT", host_name, port_num):
                 return
+            if debug:
+                _emit_proxy_debug(event_sink, "http", "connect-start", host_name, port_num, "client-request")
             try:
                 upstream = socket.create_connection((host_name, port_num), timeout=10)
                 upstream.settimeout(None)
@@ -129,12 +156,23 @@ def make_proxy_server(host, port, policy, event_sink=None):
                 _emit_proxy_event(event_sink, "deny", "http", "CONNECT", host_name, port_num, "tcp", "connect-error")
                 self.send_error(502, f"upstream connect failed: {host_name}:{port_num}")
                 return
+            if debug:
+                _emit_proxy_debug(event_sink, "http", "connect-upstream", host_name, port_num, "connected")
             self.send_response(200, "Connection Established")
             self.end_headers()
             self.wfile.flush()
             try:
                 self.connection.settimeout(None)
-                _relay(self.connection, upstream)
+                outcome = _relay(self.connection, upstream)
+                if debug:
+                    _emit_proxy_debug(
+                        event_sink,
+                        "http",
+                        "relay-end",
+                        host_name,
+                        port_num,
+                        f"{outcome['reason']} bytes={outcome['bytes']}",
+                    )
             finally:
                 upstream.close()
 
@@ -185,7 +223,7 @@ def make_proxy_server(host, port, policy, event_sink=None):
     return ThreadingHTTPServer((host, port), Handler)
 
 
-def make_socks_proxy_server(host, port, policy, event_sink=None):
+def make_socks_proxy_server(host, port, policy, event_sink=None, debug=False):
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             request = self.request
@@ -222,6 +260,8 @@ def make_socks_proxy_server(host, port, policy, event_sink=None):
                     request.sendall(b"\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00")
                     return
                 _emit_proxy_event(event_sink, "allow", "socks5", "CONNECT", host_name, port_num, "tcp", verdict["reason"])
+                if debug:
+                    _emit_proxy_debug(event_sink, "socks5", "connect-start", host_name, port_num, "client-request")
                 try:
                     upstream = socket.create_connection((host_name, port_num), timeout=10)
                     upstream.settimeout(None)
@@ -232,8 +272,19 @@ def make_socks_proxy_server(host, port, policy, event_sink=None):
                 try:
                     bound_host, bound_port = upstream.getsockname()[:2]
                     request.sendall(b"\x05\x00\x00" + _pack_address(bound_host, bound_port))
+                    if debug:
+                        _emit_proxy_debug(event_sink, "socks5", "connect-upstream", host_name, port_num, "connected")
                     request.settimeout(None)
-                    _relay(request, upstream)
+                    outcome = _relay(request, upstream)
+                    if debug:
+                        _emit_proxy_debug(
+                            event_sink,
+                            "socks5",
+                            "relay-end",
+                            host_name,
+                            port_num,
+                            f"{outcome['reason']} bytes={outcome['bytes']}",
+                        )
                 finally:
                     upstream.close()
             except (ConnectionError, OSError, ValueError):
@@ -248,13 +299,13 @@ def _start_server(server):
     return server, thread
 
 
-def start_http_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
-    return _start_server(make_proxy_server(host, port, policy, event_sink=event_sink))
+def start_http_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
+    return _start_server(make_proxy_server(host, port, policy, event_sink=event_sink, debug=debug))
 
 
-def start_socks_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
-    return _start_server(make_socks_proxy_server(host, port, policy, event_sink=event_sink))
+def start_socks_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
+    return _start_server(make_socks_proxy_server(host, port, policy, event_sink=event_sink, debug=debug))
 
 
-def start_proxy(policy, host="127.0.0.1", port=0, event_sink=None):
-    return start_http_proxy(policy, host=host, port=port, event_sink=event_sink)
+def start_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
+    return start_http_proxy(policy, host=host, port=port, event_sink=event_sink, debug=debug)

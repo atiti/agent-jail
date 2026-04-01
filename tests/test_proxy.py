@@ -150,6 +150,53 @@ class ProxyTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_socks5_proxy_debug_emits_connect_and_relay_events(self):
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+        upstream_port = upstream.getsockname()[1]
+
+        def serve_once():
+            conn, _ = upstream.accept()
+            with conn:
+                conn.recv(4096)
+                conn.sendall(b"pong")
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sink = EventSink(os.path.join(tmp, "events.jsonl"))
+            sink.start()
+            policy = ProxyPolicy(
+                [
+                    {"kind": "network", "host": "127.0.0.1", "port": upstream_port, "scheme": "tcp", "allow": True},
+                ],
+                default_allow=False,
+            )
+            server, _ = start_socks_proxy(policy, event_sink=sink, debug=True)
+            proxy_port = server.server_address[1]
+            try:
+                with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                    client.sendall(b"\x05\x01\x00")
+                    self.assertEqual(client.recv(2), b"\x05\x00")
+                    request = b"\x05\x01\x00\x01" + socket.inet_aton("127.0.0.1") + upstream_port.to_bytes(2, "big")
+                    client.sendall(request)
+                    self.assertEqual(client.recv(10)[:2], b"\x05\x00")
+                    client.sendall(b"ping")
+                    self.assertEqual(client.recv(4), b"pong")
+            finally:
+                server.shutdown()
+                server.server_close()
+                sink.close()
+                upstream.close()
+            with open(os.path.join(tmp, "events.jsonl"), encoding="utf-8") as handle:
+                events = [json.loads(line) for line in handle]
+        thread.join(timeout=2)
+        self.assertTrue(any(event.get("stage") == "connect-start" for event in events))
+        self.assertTrue(any(event.get("stage") == "connect-upstream" for event in events))
+        self.assertTrue(any(event.get("stage") == "relay-end" for event in events))
+
     def test_http_proxy_emits_deny_event(self):
         with tempfile.TemporaryDirectory() as tmp:
             sink = EventSink(os.path.join(tmp, "events.jsonl"))
