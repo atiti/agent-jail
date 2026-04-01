@@ -188,6 +188,38 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result["decision"], "deny")
         self.assertIn("outside allowed roots", result["reason"])
 
+    def test_ati_cto_brief_script_bypasses_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.1,
+                        "reason": "should not be reached",
+                    }
+                ),
+                mounts=[{"path": tmp, "mode": "rw"}],
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "python3",
+                        "/Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py",
+                        "--local-only",
+                        "--scope",
+                        "privateinfra",
+                    ],
+                    "raw": "python3 /Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py --local-only --scope privateinfra",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["reason"], "local ati-cto brief generation script")
+
     def test_read_guard_denies_python_literal_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")

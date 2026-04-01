@@ -182,6 +182,43 @@ def _is_internal_cap_bridge_argv(argv):
     return False
 
 
+def _is_safe_ati_cto_brief_argv(argv):
+    if not argv or not _is_python_tool(argv[0]):
+        return False
+    script_path = None
+    index = 1
+    while index < len(argv):
+        item = argv[index]
+        if item in {"-m", "-c", "-"}:
+            return False
+        if item.startswith("-"):
+            index += 1
+            continue
+        script_path = item
+        index += 1
+        break
+    if not script_path:
+        return False
+    normalized = os.path.realpath(os.path.abspath(os.path.expanduser(script_path)))
+    if not normalized.endswith(os.path.join("skills", "ati-cto", "scripts", "ati_cto_brief.py")):
+        return False
+    allowed_flags = {"--local-only", "--scope"}
+    while index < len(argv):
+        item = argv[index]
+        if item == "--local-only":
+            index += 1
+            continue
+        if item == "--scope":
+            if index + 1 >= len(argv):
+                return False
+            index += 2
+            continue
+        if item.startswith("-"):
+            return False
+        return False
+    return True
+
+
 def _safe_cleanup_target(target, cwd):
     if not cwd or not target:
         return False
@@ -443,6 +480,12 @@ def classify(intent, argv, delegates=None, context=None):
             "risk": "low",
             "reason": "internal capability bridge under agent-jail control",
             "category": "capability-bridge",
+        }
+    if _is_safe_ati_cto_brief_argv(argv):
+        return {
+            "risk": "low",
+            "reason": "local ati-cto brief generation script",
+            "category": "read-only",
         }
     if tool in READ_ONLY_TOOLS:
         return {"risk": "low", "reason": "read-only tool", "category": "read-only"}

@@ -195,3 +195,16 @@ class ClassifierTests(unittest.TestCase):
         verdict = classify(intent, argv)
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "capability-bridge")
+
+    def test_classify_ati_cto_brief_script_as_read_only(self):
+        argv = [
+            "python3",
+            "/Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py",
+            "--local-only",
+            "--scope",
+            "privateinfra",
+        ]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "read-only")

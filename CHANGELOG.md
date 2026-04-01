@@ -40,6 +40,7 @@
 - Restored host-side `HOME` and `PATH` for delegated commands and added delegate `set_env` support so secret-backed local tooling can run outside the sandbox without exposing those files inside it.
 - Added optional delegate `auto_inventory_from_cwd` support so repo-local `privateinfractl` and `marksterctl` invocations inherit `--ops-root` and `--inventory-dir` automatically.
 - Added implicit read-only access to local skill roots such as `~/.codex` and `~/.agents`, and made `agent-jail monitor --follow` use colored terminal output with less internal bridge noise.
+- Allowed the local `ati-cto` brief generator script invocation as a narrow read-only fast path so expected `python .../ati_cto_brief.py --local-only` probes do not fall into JIT review.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.
 - Added unit and integration tests covering CLI flow, policy matching, backend selection, proxy policy, and wrapper execution.
 - fix(wrapper): broker top-level `python`/`python3`/`node` invocations instead of bypassing wrapper mediation on direct runs
