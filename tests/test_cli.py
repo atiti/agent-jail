@@ -258,6 +258,41 @@ class CLITests(unittest.TestCase):
         self.assertTrue(values["ALL_PROXY"].startswith("socks5://127.0.0.1:"))
         self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
 
+    def test_apply_target_env_profile_strips_inherited_codex_proxy_and_cert_noise(self):
+        from agent_jail.main import apply_target_env_profile
+
+        env = {
+            "HTTP_PROXY": "http://127.0.0.1:5000",
+            "HTTPS_PROXY": "http://127.0.0.1:5000",
+            "ALL_PROXY": "socks5://127.0.0.1:5001",
+            "SOCKS_PROXY": "socks5://127.0.0.1:5001",
+            "AGENT_JAIL_HTTP_PROXY": "http://127.0.0.1:6000",
+            "AGENT_JAIL_SOCKS_PROXY": "socks5://127.0.0.1:6001",
+            "SSL_CERT_FILE": "/tmp/jail-cert.pem",
+            "SSL_CERT_DIR": "/tmp/jail-certs",
+            "REQUESTS_CA_BUNDLE": "/tmp/host-requests.pem",
+            "CURL_CA_BUNDLE": "/tmp/host-curl.pem",
+            "NODE_EXTRA_CA_CERTS": "/tmp/host-node.pem",
+            "http_proxy": "http://host-proxy:8080",
+            "https_proxy": "http://host-proxy:8080",
+            "all_proxy": "socks5://host-proxy:1080",
+            "socks_proxy": "socks5://host-proxy:1080",
+        }
+        apply_target_env_profile(env, ["/usr/local/bin/codex", "exec", "hi"])
+        self.assertEqual(env["HTTP_PROXY"], "http://127.0.0.1:5000")
+        self.assertEqual(env["HTTPS_PROXY"], "http://127.0.0.1:5000")
+        self.assertEqual(env["ALL_PROXY"], "socks5://127.0.0.1:5001")
+        self.assertEqual(env["SOCKS_PROXY"], "socks5://127.0.0.1:5001")
+        self.assertEqual(env["SSL_CERT_FILE"], "/tmp/jail-cert.pem")
+        self.assertEqual(env["SSL_CERT_DIR"], "/tmp/jail-certs")
+        self.assertNotIn("REQUESTS_CA_BUNDLE", env)
+        self.assertNotIn("CURL_CA_BUNDLE", env)
+        self.assertNotIn("NODE_EXTRA_CA_CERTS", env)
+        self.assertNotIn("http_proxy", env)
+        self.assertNotIn("https_proxy", env)
+        self.assertNotIn("all_proxy", env)
+        self.assertNotIn("socks_proxy", env)
+
     def test_mounts_codex_and_claude_home_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             real_home = os.path.join(tmp, "real-home")

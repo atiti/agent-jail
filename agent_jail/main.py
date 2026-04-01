@@ -44,6 +44,51 @@ def resolve_target(target_argv, env):
     raise FileNotFoundError(candidate)
 
 
+TARGET_ENV_PROFILES = {
+    "codex": {
+        "clear": {
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "socks_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "SOCKS_PROXY",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "REQUESTS_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "NODE_EXTRA_CA_CERTS",
+        },
+        "preserve": {
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "SOCKS_PROXY",
+            "AGENT_JAIL_HTTP_PROXY",
+            "AGENT_JAIL_SOCKS_PROXY",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+        },
+    }
+}
+
+
+def apply_target_env_profile(env, target_argv):
+    if not target_argv:
+        return env
+    target_name = os.path.basename(target_argv[0])
+    profile = TARGET_ENV_PROFILES.get(target_name)
+    if not profile:
+        return env
+    preserved = {key: env[key] for key in profile["preserve"] if key in env}
+    for key in profile["clear"]:
+        env.pop(key, None)
+    env.update(preserved)
+    return env
+
+
 def ensure_home():
     preferred = os.environ.get("AGENT_JAIL_HOME") or os.path.join(os.path.expanduser("~"), ".agent-jail")
     try:
@@ -683,6 +728,7 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
+        apply_target_env_profile(env, target_argv)
         cmd = build_command(backend, target_argv, os.getcwd(), env)
         try:
             proc = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
