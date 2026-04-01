@@ -54,6 +54,10 @@ def ensure_home():
 
 
 def discover_cert_env():
+    if sys.platform == "darwin":
+        # Native macOS TLS clients like Codex/Reqwest use the system keychain and
+        # can misinterpret OpenSSL-style SSL_CERT_* overrides.
+        return {}
     paths = ssl.get_default_verify_paths()
     updates = {}
     if paths.cafile and os.path.exists(paths.cafile):
