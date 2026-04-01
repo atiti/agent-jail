@@ -213,8 +213,8 @@ class CLITests(unittest.TestCase):
         values = json.loads(proc.stdout.strip())
         self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
         self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["ALL_PROXY"].startswith("socks5://127.0.0.1:"))
-        self.assertEqual(values["SOCKS_PROXY"], values["ALL_PROXY"])
+        self.assertIsNone(values["ALL_PROXY"])
+        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
 
     def test_mounts_codex_and_claude_home_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:

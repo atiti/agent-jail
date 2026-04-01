@@ -372,10 +372,15 @@ The proxy is explicit-proxy based. When enabled, `agent-jail` sets:
 
 - `HTTP_PROXY`
 - `HTTPS_PROXY`
-- `ALL_PROXY`
 - `SOCKS_PROXY`
 
-`HTTP_PROXY` and `HTTPS_PROXY` point at the built-in HTTP proxy. `ALL_PROXY` and `SOCKS_PROXY` point at a built-in SOCKS5 proxy.
+`HTTP_PROXY` and `HTTPS_PROXY` point at the built-in HTTP proxy. `SOCKS_PROXY` points at a built-in SOCKS5 proxy.
+
+`ALL_PROXY` is intentionally not forced by default because some clients behave poorly when all traffic is globally routed through SOCKS. For SOCKS-aware clients that need it, set it explicitly inside the session:
+
+```bash
+export ALL_PROXY="$SOCKS_PROXY"
+```
 
 Both proxies use the same `network` rules from `policy.json`. Rules support:
 
@@ -412,7 +417,7 @@ python3 agent-jail run --proxy --deny-network-by-default \
 python3 -c "import urllib.request; print(urllib.request.urlopen('https://example.com', timeout=5).status)"
 ```
 
-For SOCKS-aware clients, use `ALL_PROXY`/`SOCKS_PROXY` inside the session. `agent-jail` exports both automatically when `--proxy` is enabled.
+For SOCKS-aware clients, use `SOCKS_PROXY` directly or set `ALL_PROXY="$SOCKS_PROXY"` explicitly inside the session.
 
 ## Repository health
 

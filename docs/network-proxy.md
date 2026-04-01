@@ -3,7 +3,7 @@
 `agent-jail` can export two explicit proxies inside a session:
 
 - an HTTP proxy for `HTTP_PROXY` and `HTTPS_PROXY`
-- a SOCKS5 proxy for `ALL_PROXY` and `SOCKS_PROXY`
+- a SOCKS5 proxy for `SOCKS_PROXY`
 
 Both use the same `network` rules stored in `policy.json`.
 
@@ -51,7 +51,13 @@ python3 agent-jail run --proxy --deny-network-by-default claude
 Inside the session:
 
 - HTTP(S) clients typically use `HTTP_PROXY` / `HTTPS_PROXY`
-- SOCKS-aware clients typically use `ALL_PROXY` / `SOCKS_PROXY`
+- SOCKS-aware clients typically use `SOCKS_PROXY`
+
+If a client expects `ALL_PROXY`, set it explicitly:
+
+```bash
+export ALL_PROXY="$SOCKS_PROXY"
+```
 
 ## Smoke test
 

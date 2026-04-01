@@ -659,12 +659,12 @@ def run(argv=None):
                 {
                     "HTTP_PROXY": http_proxy_url,
                     "HTTPS_PROXY": http_proxy_url,
-                    "ALL_PROXY": socks_proxy_url,
                     "SOCKS_PROXY": socks_proxy_url,
                     "AGENT_JAIL_HTTP_PROXY": http_proxy_url,
                     "AGENT_JAIL_SOCKS_PROXY": socks_proxy_url,
                 }
             )
+            env.pop("ALL_PROXY", None)
         backend = choose_backend(preferred=env.get("AGENT_JAIL_BACKEND"))
         try:
             target_argv = resolve_target(args.target, env)

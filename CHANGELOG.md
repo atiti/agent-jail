@@ -4,7 +4,7 @@
 
 - Added a first-class `agent-jail network` CLI for `allow`, `deny`, `list`, and `test` operations against shared proxy policy rules.
 - Extended proxy support with a built-in SOCKS5 listener for TCP `CONNECT` traffic while keeping the existing HTTP/HTTPS proxy path.
-- Updated `agent-jail run --proxy` to export both HTTP proxy variables and SOCKS proxy variables so more proxy-aware clients can be exercised under policy.
+- Updated `agent-jail run --proxy` to export HTTP proxy variables plus `SOCKS_PROXY`, while avoiding a forced global `ALL_PROXY` override for better client compatibility.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 
 - Added the initial `agent-jail` CLI launcher.
