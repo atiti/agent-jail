@@ -88,6 +88,12 @@ add_jit_case() {
   JIT_CMDS+=("$(printf '%q ' "$@")")
 }
 
+case_home() {
+  local profile="$1"
+  local case_name="$2"
+  printf '%s\n' "${SUITE_HOME}/${profile}-${case_name}"
+}
+
 render_tag() {
   local kind="$1"
   case "${kind}" in
@@ -183,9 +189,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-profile_home() {
+write_profile_config() {
   local profile="$1"
-  local home="${SUITE_HOME}/${profile}"
+  local home="$2"
   mkdir -p "${home}"
   case "${profile}" in
     deterministic)
@@ -312,6 +318,12 @@ EOF
       exit 2
       ;;
   esac
+}
+
+profile_home() {
+  local profile="$1"
+  local home="${SUITE_HOME}/${profile}"
+  write_profile_config "${profile}" "${home}"
   printf '%s\n' "${home}"
 }
 
@@ -329,7 +341,8 @@ run_case() {
   local -a cmd=()
   local home
   eval "cmd=( ${serialized} )"
-  home=$(profile_home "deterministic")
+  home=$(case_home "deterministic" "${name}")
+  write_profile_config "deterministic" "${home}"
 
   if [ "${MODE}" = "list" ]; then
     printf '%-24s %-18s %-18s %s\n' "${name}" "${group}" "${expectation}" "${description}"
@@ -405,7 +418,8 @@ run_jit_case() {
   if [[ "${jit_mode}" == live-azure* ]]; then
     profile="live-azure"
   fi
-  home=$(profile_home "${profile}")
+  home=$(case_home "${profile}" "${name}")
+  write_profile_config "${profile}" "${home}"
 
   if [ "${MODE}" = "list" ]; then
     printf '%-24s %-18s %-18s %s\n' "${name}" "jit/${jit_mode}" "${jit_mode}" "${description}"
@@ -460,7 +474,7 @@ run_jit_case() {
         result="PASS"
       fi
       ;;
-    live-azure)
+    live-azure|live-azure-all)
       if [[ "${output}" == *"jit request failed:"* ]] || [[ "${output}" == *"jit http error:"* ]] || [[ "${output}" == *"jit provider unavailable:"* ]] || [[ "${output}" == *"jit response"* ]]; then
         result="FAIL"
       elif [ "${status}" -eq 0 ]; then
