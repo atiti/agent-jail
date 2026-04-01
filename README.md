@@ -1,15 +1,67 @@
 # agent-jail
 
-`agent-jail` is a lightweight brokered runtime for AI agent CLIs such as `codex` and `claude`.
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-6f42c1.svg)](#platform-model)
+[![Tests](https://img.shields.io/badge/tests-unittest-green.svg)](#verification)
 
-It is not a full sandbox. The primary goal is to reduce accidental damage by:
+`agent-jail` is a brokered runtime for agent CLIs such as `codex` and `claude`.
 
-- intercepting commands through a wrapper layer
-- classifying intent and risk
-- allowing, denying, or auto-approving with logging
-- learning reusable rules
-- optionally routing network traffic through a policy-aware proxy
-- separating direct project access from proxied sensitive capabilities
+It sits between an agent and the host shell, intercepts commands, applies policy, and gives you a cleaner capability boundary than "let the model run directly on my machine".
+
+`agent-jail` is not a formal security sandbox. It is an operator-control layer designed to:
+
+- intercept commands through a wrapper layer
+- classify intent and risk
+- allow, deny, or route commands through mediated capability bridges
+- learn reusable rules from repeated low-risk behavior
+- keep logs and reviewable policy state
+- optionally route network traffic through a policy-aware proxy
+
+## What it is good for
+
+- letting an agent work directly inside selected repos without handing it your full host
+- forcing production or secret-bearing actions through delegates instead of raw tools
+- making policy decisions observable and repeatable
+- pressure-testing agent behavior with deterministic and JIT-backed manual suites
+
+## What it is not
+
+- not a VM
+- not a container manager
+- not a guarantee against a determined local attacker
+- not a substitute for host hardening, credential hygiene, or environment separation
+
+## Quick start
+
+Run an agent inside a brokered session:
+
+```bash
+python3 agent-jail run codex --help
+python3 agent-jail run claude --help
+```
+
+Run with an explicit writable project:
+
+```bash
+python3 agent-jail run \
+  --project ~/build/my-repo \
+  --allow-write ~/build/my-repo \
+  codex exec "List the repo and summarize it"
+```
+
+Watch events in another terminal:
+
+```bash
+python3 agent-jail monitor --follow
+```
+
+Run the built-in validation suites:
+
+```bash
+python3 -m unittest discover -s tests -v
+bash scripts/manual_policy_suite.sh --mode deterministic
+bash scripts/manual_policy_suite.sh --mode jit
+```
 
 ## Platform model
 
@@ -116,6 +168,32 @@ bash scripts/manual_policy_suite.sh --list
 bash scripts/manual_policy_suite.sh
 bash scripts/manual_policy_suite.sh --mode jit
 bash scripts/manual_policy_suite.sh --mode live-azure
+bash scripts/manual_policy_suite.sh --mode live-azure-all
+```
+
+## Verification
+
+Unit tests:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Manual policy validation:
+
+```bash
+bash scripts/manual_policy_suite.sh --mode deterministic
+bash scripts/manual_policy_suite.sh --mode jit
+```
+
+Real Azure-backed JIT smoke / matrix:
+
+```bash
+export AZURE_OPENAI_ENDPOINT='https://...openai.azure.com'
+export AZURE_OPENAI_API_KEY='...'
+export AZURE_OPENAI_DEPLOYMENT='...'
+export AZURE_OPENAI_JIT_TIMEOUT_MS=10000
+bash scripts/manual_policy_suite.sh --mode live-azure-all
 ```
 
 ## How it works
@@ -209,6 +287,28 @@ The proxy can allow or deny requests by host and port using network rules from t
 Limit:
 
 - clients that ignore proxy environment variables are not covered
+
+## Repository health
+
+- [Contributing guide](/Users/attilasukosd/build/agent-jail/CONTRIBUTING.md)
+- [Security policy](/Users/attilasukosd/build/agent-jail/SECURITY.md)
+- [Support guide](/Users/attilasukosd/build/agent-jail/SUPPORT.md)
+- [Code of conduct](/Users/attilasukosd/build/agent-jail/CODE_OF_CONDUCT.md)
+
+## Project status
+
+This project is usable, but still evolving. Expect policy and test coverage to improve faster than backend isolation guarantees.
+
+Recommended reading:
+
+- [docs/manual-policy-suite.md](/Users/attilasukosd/build/agent-jail/docs/manual-policy-suite.md)
+- [2026-03-31-agent-jail-design.md](/Users/attilasukosd/build/agent-jail/docs/superpowers/specs/2026-03-31-agent-jail-design.md)
+- [2026-03-31-agent-jail-lifestyle-design.md](/Users/attilasukosd/build/agent-jail/docs/superpowers/specs/2026-03-31-agent-jail-lifestyle-design.md)
+
+## Open source notes
+
+- No license file has been added in this pass.
+- Repository-specific or private environment assumptions should stay in local config, not in tracked files.
 
 ## Working with secrets, ops, and browsers
 

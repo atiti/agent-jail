@@ -11,6 +11,12 @@ class JITRuleTests(unittest.TestCase):
         self.assertTrue(engine.eligible({"risk": "low", "category": "general"}))
         self.assertFalse(engine.eligible({"risk": "low", "category": "read-only"}))
 
+    def test_force_low_risk_can_include_read_only(self):
+        engine = JITRuleEngine({"jit_enabled": True, "jit_force_low_risk": True})
+        self.assertTrue(engine.should_attempt({"risk": "low", "category": "read-only"}))
+        self.assertTrue(engine.should_attempt({"risk": "low", "category": "general"}))
+        self.assertFalse(engine.should_attempt({"risk": "medium", "category": "read-only"}))
+
     def test_validate_allow_response_builds_rule(self):
         engine = JITRuleEngine(
             {

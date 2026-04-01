@@ -22,6 +22,15 @@ class JITRuleEngine:
             return False
         return verdict.get("risk") == "low" and verdict.get("category") == "general"
 
+    def should_attempt(self, verdict):
+        if self.eligible(verdict):
+            return True
+        if not self.enabled():
+            return False
+        if not self.config.get("jit_force_low_risk", False):
+            return False
+        return verdict.get("risk") == "low" and verdict.get("category") in {"general", "read-only"}
+
     def decide(self, intent, raw, verdict, template, context=None):
         key = (intent.get("tool"), intent.get("action"), template)
         cached = self.cache.get(key)

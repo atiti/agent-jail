@@ -307,6 +307,7 @@ EOF
     "api_version": "${AZURE_OPENAI_API_VERSION:-2024-10-21}",
     "jit_enabled": true,
     "jit_auto_apply_low_risk": true,
+    "jit_force_low_risk": true,
     "jit_timeout_ms": ${AZURE_OPENAI_JIT_TIMEOUT_MS:-3000},
     "confidence_threshold": ${AZURE_OPENAI_JIT_CONFIDENCE:-0.8}
   }

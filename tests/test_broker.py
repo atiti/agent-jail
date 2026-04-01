@@ -10,7 +10,7 @@ class _StubJIT:
     def __init__(self, result):
         self.result = result
 
-    def eligible(self, verdict):
+    def should_attempt(self, verdict):
         return verdict.get("risk") == "low" and verdict.get("category") == "general"
 
     def decide(self, intent, raw, verdict, template, context=None):

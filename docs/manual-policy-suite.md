@@ -93,6 +93,8 @@ Live Azure modes accept either:
 
 They are smoke tests for real model behavior, not deterministic regression gates.
 
+In the live Azure profiles, low-risk read-only commands are intentionally forced through the JIT path so the real model is exercised on commands like `tree` and read-only shell pipelines instead of those commands being short-circuited by the deterministic broker allow path.
+
 `--mode live-azure` runs the single baseline smoke case.
 
 `--mode live-azure-all` runs the current live matrix of JIT-eligible commands, including:
@@ -100,6 +102,8 @@ They are smoke tests for real model behavior, not deterministic regression gates
 - direct `tree` inspection
 - a read-only shell pipeline
 - a low-risk Python subprocess inspection script
+
+Each case in the manual suite now runs in its own isolated `AGENT_JAIL_HOME`, so approvals, reviews, and learned rules do not leak between cases.
 
 These outcomes are explicit failures in `--mode live-azure`:
 

@@ -1,0 +1,33 @@
+repository:
+  description: Brokered runtime for AI agent CLIs with command interception, policy enforcement, delegates, and manual/JIT validation suites.
+  homepage: https://github.com/atiti/agent-jail
+  topics:
+    - ai-agents
+    - sandbox
+    - policy
+    - security
+    - cli
+    - automation
+
+labels:
+  - name: bug
+    color: d73a4a
+    description: Something is broken
+  - name: enhancement
+    color: a2eeef
+    description: New capability or improvement
+  - name: documentation
+    color: 0075ca
+    description: Docs or onboarding improvements
+  - name: security
+    color: b60205
+    description: Security-relevant issue
+  - name: policy
+    color: 5319e7
+    description: Policy engine or rule behavior
+  - name: jit
+    color: 1d76db
+    description: JIT suggestion or review flow
+  - name: good first issue
+    color: 7057ff
+    description: Good starter task

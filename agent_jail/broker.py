@@ -536,7 +536,7 @@ class BrokerServer:
             )
             return {"decision": "deny", "reason": verdict["reason"]}
         template = event_template(intent, verdict)
-        if self.jit_engine.eligible(verdict):
+        if self.jit_engine.should_attempt(verdict):
             jit = self.jit_engine.decide(intent, raw, verdict, template, context=context)
             jit_config = getattr(self.jit_engine, "config", {}) or {}
             if (
