@@ -167,3 +167,44 @@ class ProxyTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_http_connect_relays_matching_host(self):
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+        upstream_port = upstream.getsockname()[1]
+        received = []
+
+        def serve_once():
+            conn, _ = upstream.accept()
+            with conn:
+                data = conn.recv(4096)
+                received.append(data)
+                conn.sendall(b"pong")
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+
+        policy = ProxyPolicy(
+            [
+                {"kind": "network", "host": "127.0.0.1", "port": upstream_port, "scheme": "tcp", "allow": True},
+            ],
+            default_allow=False,
+        )
+        server, _ = start_http_proxy(policy)
+        proxy_port = server.server_port
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(
+                    f"CONNECT 127.0.0.1:{upstream_port} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\n\r\n".encode()
+                )
+                response = client.recv(4096)
+                self.assertIn(b"200 Connection Established", response)
+                client.sendall(b"ping")
+                self.assertEqual(client.recv(4), b"pong")
+        finally:
+            server.shutdown()
+            server.server_close()
+            upstream.close()
+        thread.join(timeout=2)
+        self.assertEqual(received, [b"ping"])

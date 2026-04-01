@@ -124,13 +124,16 @@ def make_proxy_server(host, port, policy, event_sink=None):
                 return
             try:
                 upstream = socket.create_connection((host_name, port_num), timeout=10)
+                upstream.settimeout(None)
             except OSError:
                 _emit_proxy_event(event_sink, "deny", "http", "CONNECT", host_name, port_num, "tcp", "connect-error")
                 self.send_error(502, f"upstream connect failed: {host_name}:{port_num}")
                 return
             self.send_response(200, "Connection Established")
             self.end_headers()
+            self.wfile.flush()
             try:
+                self.connection.settimeout(None)
                 _relay(self.connection, upstream)
             finally:
                 upstream.close()
