@@ -23,3 +23,5 @@ class ManualSuiteTests(unittest.TestCase):
         self.assertIn("observe_dmesg", proc.stdout)
         self.assertIn("jit_python_auto_allow", proc.stdout)
         self.assertIn("live_python_semantic", proc.stdout)
+        self.assertIn("live_tree_semantic", proc.stdout)
+        self.assertIn("live_shell_semantic", proc.stdout)

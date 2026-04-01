@@ -33,6 +33,7 @@ Run only deterministic or JIT cases:
 bash scripts/manual_policy_suite.sh --mode deterministic
 bash scripts/manual_policy_suite.sh --mode jit
 bash scripts/manual_policy_suite.sh --mode live-azure
+bash scripts/manual_policy_suite.sh --mode live-azure-all
 ```
 
 Keep the temporary state directory for inspection:
@@ -62,6 +63,7 @@ Covered cases include:
 - an `OBSERVE` case for `dmesg`, which is intentionally reported as current behavior rather than locked to a pass/fail expectation
 - stubbed JIT auto-allow, review, and reject cases with assertions on `policy.json`
 - a live Azure JIT smoke case that asserts sane semantic behavior for a low-risk interpreted command
+- a live Azure matrix mode that runs several JIT-eligible commands against the real model
 
 To extend the suite, add another `add_case` entry in [manual_policy_suite.sh](/Users/attilasukosd/build/agent-jail/scripts/manual_policy_suite.sh). Each case declares:
 
@@ -78,18 +80,26 @@ For JIT cases, add `add_jit_case` entries instead. Those cases run against isola
 - pending review creation
 - deduped review IDs on rerun
 
-`--mode live-azure` is intentionally separate from the stubbed mode. It requires:
+`--mode live-azure` and `--mode live-azure-all` are intentionally separate from the stubbed mode. They require:
 
 - `AZURE_OPENAI_ENDPOINT`
 - `AZURE_OPENAI_API_KEY`
 - `AZURE_OPENAI_DEPLOYMENT`
 
-Live Azure mode accepts either:
+Live Azure modes accept either:
 
 - auto-allow with a persisted semantic rule
 - or a semantic pending review
 
-It is a smoke test for real model behavior, not a deterministic regression gate.
+They are smoke tests for real model behavior, not deterministic regression gates.
+
+`--mode live-azure` runs the single baseline smoke case.
+
+`--mode live-azure-all` runs the current live matrix of JIT-eligible commands, including:
+
+- direct `tree` inspection
+- a read-only shell pipeline
+- a low-risk Python subprocess inspection script
 
 These outcomes are explicit failures in `--mode live-azure`:
 
