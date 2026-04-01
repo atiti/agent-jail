@@ -50,6 +50,16 @@ FLAG_VALUE_COUNTS = {
     "sort": {"o": 1, "t": 1, "k": 1},
     "tail": {"n": 1, "c": 1},
 }
+GIT_FLAGS_WITH_VALUES = {
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--super-prefix",
+    "--config-env",
+    "--exec-path",
+}
 
 
 def event_template(intent, verdict=None):
@@ -112,12 +122,19 @@ def normalize(argv):
         target = argv[2]
     elif tool == "git":
         action = ""
+        skip_value = False
         for item in argv[1:]:
+            if skip_value:
+                skip_value = False
+                continue
             if item.startswith("-"):
                 flag = item.lstrip("-")
                 flags.append(flag)
                 if flag in {"f", "force"}:
                     force = True
+                if item in GIT_FLAGS_WITH_VALUES or any(item.startswith(prefix + "=") for prefix in GIT_FLAGS_WITH_VALUES):
+                    if "=" not in item:
+                        skip_value = True
             elif not action:
                 action = item
             elif target is None:
