@@ -30,6 +30,20 @@ def default_config_path():
     return os.path.join(home, "config.json")
 
 
+def _normalize_run_defaults(values):
+    if not isinstance(values, dict):
+        values = {}
+    project_mode = values.get("project_mode", "")
+    if project_mode not in {"", "cwd"}:
+        project_mode = ""
+    return {
+        "read_only_roots": _normalize_path_list(values.get("read_only_roots")),
+        "write_roots": _normalize_path_list(values.get("write_roots")),
+        "allow_ops": bool(values.get("allow_ops", False)),
+        "project_mode": project_mode,
+    }
+
+
 def load_config(path=None):
     config_path = path or default_config_path()
     if os.path.exists(config_path):
@@ -48,6 +62,12 @@ def load_config(path=None):
         "read_only_roots": _normalize_path_list(filesystem.get("read_only_roots")),
         "write_roots": _normalize_path_list(filesystem.get("write_roots")),
         "deny_read_patterns": _normalize_pattern_list(filesystem.get("deny_read_patterns")),
+    }
+    defaults = data.get("defaults")
+    if not isinstance(defaults, dict):
+        defaults = {}
+    data["defaults"] = {
+        "run": _normalize_run_defaults(defaults.get("run")),
     }
     llm_policy = data.get("llm_policy")
     if not isinstance(llm_policy, dict):
@@ -70,3 +90,11 @@ def load_config(path=None):
         "stub_reason": llm_policy.get("stub_reason", ""),
     }
     return data
+
+
+def save_config(data, path=None):
+    config_path = path or default_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+        handle.write("\n")

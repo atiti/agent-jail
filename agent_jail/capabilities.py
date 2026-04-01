@@ -20,7 +20,7 @@ def resolve_session_capabilities(
     writable.update(_normalize_path(path) for path in (write_roots or []))
     mounts = []
     seen = set()
-    for project in list(projects) + list(read_only_roots or []):
+    for project in list(projects) + list(read_only_roots or []) + list(write_roots or []):
         path = _normalize_path(project)
         if path in seen:
             continue

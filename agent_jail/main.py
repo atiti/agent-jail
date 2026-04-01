@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
 from agent_jail.capabilities import resolve_session_capabilities
-from agent_jail.config import load_config
+from agent_jail.config import load_config, save_config
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_proxy
@@ -134,7 +134,7 @@ def parse_args(argv=None):
     run.add_argument("--deny-network-by-default", action="store_true")
     run.add_argument("--project", action="append", default=[])
     run.add_argument("--allow-write", action="append", default=[])
-    run.add_argument("--allow-ops", action="store_true")
+    run.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--allow-delegate", action="append", default=[])
     run.add_argument("--allow-browser", action="store_true")
     run.add_argument("--direct-secret-env", action="store_true")
@@ -162,6 +162,14 @@ def parse_args(argv=None):
     review_approve.add_argument("review_id")
     review_reject = review_sub.add_parser("reject")
     review_reject.add_argument("review_id")
+    config = sub.add_parser("config")
+    config_sub = config.add_subparsers(dest="config_command", required=True)
+    config_sub.add_parser("show")
+    config_set = config_sub.add_parser("set-defaults")
+    config_set.add_argument("--read-only-root", action="append", default=[])
+    config_set.add_argument("--write-root", action="append", default=[])
+    config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
+    config_set.add_argument("--project-mode", choices=["cwd"], default=None)
     return parser, parser.parse_args(argv)
 
 
@@ -329,6 +337,29 @@ def handle_review(args):
     return 0
 
 
+def handle_config(args):
+    home = ensure_home()
+    config_path = os.path.join(home, "config.json")
+    config = load_config(config_path)
+    if args.config_command == "show":
+        print(json.dumps(config, indent=2, sort_keys=True))
+        return 0
+    run_defaults = dict(config.get("defaults", {}).get("run", {}))
+    if args.read_only_root:
+        run_defaults["read_only_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.read_only_root]
+    if args.write_root:
+        run_defaults["write_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.write_root]
+    if args.allow_ops is not None:
+        run_defaults["allow_ops"] = bool(args.allow_ops)
+    if args.project_mode is not None:
+        run_defaults["project_mode"] = args.project_mode
+    config.setdefault("defaults", {})
+    config["defaults"]["run"] = run_defaults
+    save_config(config, config_path)
+    print(json.dumps(load_config(config_path), indent=2, sort_keys=True))
+    return 0
+
+
 def run(argv=None):
     parser, args = parse_args(argv)
     if args.command == "monitor":
@@ -337,6 +368,8 @@ def run(argv=None):
         return handle_review(args)
     if args.command == "suggest-rules":
         return suggest_rules(args)
+    if args.command == "config":
+        return handle_config(args)
     if args.command != "run" or not args.target:
         parser.print_usage(sys.stderr)
         raise SystemExit(2)
@@ -347,6 +380,7 @@ def run(argv=None):
         print("agent-jail stopped by kill switch before launch", file=sys.stderr)
         raise SystemExit(125)
     config = load_config()
+    run_defaults = config.get("defaults", {}).get("run", {})
     with tempfile.TemporaryDirectory(prefix="agent-jail-") as tmp:
         source_root = os.path.dirname(os.path.dirname(__file__))
         python_executable = resolve_python()
@@ -360,15 +394,23 @@ def run(argv=None):
         )
         store = PolicyStore(os.path.join(home, "policy.json"))
         delegate_names = set(args.allow_delegate or [])
-        if args.allow_ops:
+        allow_ops = run_defaults.get("allow_ops", False) if args.allow_ops is None else bool(args.allow_ops)
+        if allow_ops:
             delegate_names.add("ops")
+        projects = list(args.project)
+        allow_write = list(args.allow_write)
+        cwd = os.getcwd()
+        if run_defaults.get("project_mode") == "cwd" and not projects:
+            projects.append(cwd)
+        if cwd in projects and cwd not in allow_write:
+            allow_write.append(cwd)
         session = resolve_session_capabilities(
-            projects=args.project or [os.getcwd()],
-            allow_write=args.allow_write or [os.getcwd()],
-            read_only_roots=config.get("filesystem", {}).get("read_only_roots", []),
-            write_roots=config.get("filesystem", {}).get("write_roots", []),
+            projects=projects or [cwd],
+            allow_write=allow_write or [cwd],
+            read_only_roots=config.get("filesystem", {}).get("read_only_roots", []) + run_defaults.get("read_only_roots", []),
+            write_roots=config.get("filesystem", {}).get("write_roots", []) + run_defaults.get("write_roots", []),
             skills_proxy=True,
-            ops_exec=args.allow_ops,
+            ops_exec=allow_ops,
             delegates=sorted(delegate_names),
             browser_automation=args.allow_browser,
             direct_secret_env=args.direct_secret_env,

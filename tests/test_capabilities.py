@@ -45,7 +45,7 @@ class CapabilityTests(unittest.TestCase):
         mounts = {item["path"]: item["mode"] for item in result["mounts"]}
         self.assertEqual(mounts[project], "rw")
         self.assertEqual(mounts[docs_root], "ro")
-        self.assertNotIn(workspace, mounts)
+        self.assertEqual(mounts[workspace], "rw")
 
     def test_configured_write_roots_make_matching_project_writable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,3 +57,14 @@ class CapabilityTests(unittest.TestCase):
                 write_roots=[workspace],
             )
         self.assertEqual(result["mounts"][0]["mode"], "rw")
+
+    def test_write_roots_are_mounted_even_without_project_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = os.path.join(tmp, "workspace")
+            os.makedirs(workspace)
+            result = resolve_session_capabilities(
+                projects=[],
+                allow_write=[],
+                write_roots=[workspace],
+            )
+        self.assertEqual(result["mounts"], [{"path": workspace, "mode": "rw"}])

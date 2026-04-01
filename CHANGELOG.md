@@ -38,9 +38,6 @@
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.
 - Added unit and integration tests covering CLI flow, policy matching, backend selection, proxy policy, and wrapper execution.
-# Changelog
-
-## Unreleased
-
 - fix(wrapper): broker top-level `python`/`python3`/`node` invocations instead of bypassing wrapper mediation on direct runs
 - test(ci): add an end-to-end regression for denying top-level `python3 -c` reads outside allowed roots
+- feat(config): add default run profiles and `agent-jail config set-defaults` for personal filesystem roots and default ops enablement

@@ -42,6 +42,23 @@ python3 agent-jail run codex --help
 python3 agent-jail run claude --help
 ```
 
+Set a personal default run profile once:
+
+```bash
+python3 agent-jail config set-defaults \
+  --read-only-root ~/build \
+  --write-root ~/workspace \
+  --allow-ops \
+  --project-mode cwd
+```
+
+After that, a plain run inherits:
+
+- current working directory as a writable project root
+- `~/build` as read-only
+- `~/workspace` as writable
+- ops enabled by default
+
 Run with an explicit writable project:
 
 ```bash
@@ -161,6 +178,17 @@ Handle pending JIT reviews:
 python3 agent-jail review list
 python3 agent-jail review approve <id>
 python3 agent-jail review reject <id>
+```
+
+Inspect or update your local defaults:
+
+```bash
+python3 agent-jail config show
+python3 agent-jail config set-defaults \
+  --read-only-root ~/build \
+  --write-root ~/workspace \
+  --allow-ops \
+  --project-mode cwd
 ```
 
 Run the manual edge-case validation suite:
@@ -359,6 +387,23 @@ Example:
   ]
 }
 ```
+
+You can also define personal run defaults in the same file:
+
+```json
+{
+  "defaults": {
+    "run": {
+      "read_only_roots": ["~/build"],
+      "write_roots": ["~/workspace"],
+      "allow_ops": true,
+      "project_mode": "cwd"
+    }
+  }
+}
+```
+
+With that profile in place, `agent-jail run <cmd>` behaves like a convenience wrapper for day-to-day local use while still keeping the policy in config instead of in an external shell alias.
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 

@@ -7,6 +7,19 @@ from agent_jail.config import load_config
 
 
 class ConfigTests(unittest.TestCase):
+    def test_load_config_defaults_run_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_config(os.path.join(tmp, "missing.json"))
+        self.assertEqual(
+            config["defaults"]["run"],
+            {
+                "read_only_roots": [],
+                "write_roots": [],
+                "allow_ops": False,
+                "project_mode": "",
+            },
+        )
+
     def test_load_config_normalizes_filesystem_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = os.path.join(tmp, "config.json")
@@ -72,3 +85,32 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["llm_policy"]["auto_promote_min_count"], 4)
         self.assertEqual(config["llm_policy"]["confidence_threshold"], 0.9)
         self.assertFalse(config["llm_policy"]["jit_enabled"])
+
+    def test_load_config_normalizes_run_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "config.json")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "defaults": {
+                            "run": {
+                                "read_only_roots": ["~/build", "", 1],
+                                "write_roots": ["~/workspace"],
+                                "allow_ops": True,
+                                "project_mode": "cwd",
+                            }
+                        }
+                    },
+                    handle,
+                )
+            config = load_config(config_path)
+        self.assertEqual(
+            config["defaults"]["run"]["read_only_roots"],
+            [os.path.abspath(os.path.expanduser("~/build"))],
+        )
+        self.assertEqual(
+            config["defaults"]["run"]["write_roots"],
+            [os.path.abspath(os.path.expanduser("~/workspace"))],
+        )
+        self.assertTrue(config["defaults"]["run"]["allow_ops"])
+        self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")

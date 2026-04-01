@@ -49,6 +49,93 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 127)
         self.assertIn("target command not found", proc.stderr.lower())
 
+    def test_run_uses_default_project_and_filesystem_roots_from_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            home = os.path.join(tmp, "home")
+            build_root = os.path.join(tmp, "build")
+            workspace_root = os.path.join(tmp, "workspace")
+            os.makedirs(repo)
+            os.makedirs(home)
+            os.makedirs(build_root)
+            os.makedirs(workspace_root)
+            with open(os.path.join(home, "config.json"), "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "defaults": {
+                            "run": {
+                                "read_only_roots": [build_root],
+                                "write_roots": [workspace_root],
+                                "allow_ops": True,
+                                "project_mode": "cwd",
+                            }
+                        }
+                    },
+                    handle,
+                )
+            proc = subprocess.run(
+                [
+                    CLI,
+                    "run",
+                    sys.executable,
+                    "-c",
+                    "import json, os; print(json.dumps(json.loads(os.environ['AGENT_JAIL_MOUNTS']), sort_keys=True)); print(os.environ['AGENT_JAIL_CAPABILITIES'])",
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                env={**os.environ, "AGENT_JAIL_BACKEND": "host", "AGENT_JAIL_HOME": home},
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        mounts_json, capabilities_json = proc.stdout.strip().splitlines()
+        mounts = [
+            {"path": os.path.realpath(item["path"]), "mode": item["mode"]}
+            for item in json.loads(mounts_json)
+        ]
+        capabilities = json.loads(capabilities_json)
+        self.assertIn({"path": os.path.realpath(repo), "mode": "rw"}, mounts)
+        self.assertIn({"path": os.path.realpath(build_root), "mode": "ro"}, mounts)
+        self.assertIn({"path": os.path.realpath(workspace_root), "mode": "rw"}, mounts)
+        self.assertTrue(capabilities["ops_exec"])
+
+    def test_config_show_prints_current_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "config.json")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump({"defaults": {"run": {"allow_ops": True}}}, handle)
+            proc = self.run_cli("config", "show", env={"AGENT_JAIL_HOME": tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertTrue(data["defaults"]["run"]["allow_ops"])
+
+    def test_config_set_defaults_updates_run_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = self.run_cli(
+                "config",
+                "set-defaults",
+                "--read-only-root",
+                "~/build",
+                "--write-root",
+                "~/workspace",
+                "--allow-ops",
+                "--project-mode",
+                "cwd",
+                env={"AGENT_JAIL_HOME": tmp},
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(os.path.join(tmp, "config.json"), encoding="utf-8") as handle:
+                config = json.load(handle)
+        self.assertEqual(
+            config["defaults"]["run"]["read_only_roots"],
+            [os.path.abspath(os.path.expanduser("~/build"))],
+        )
+        self.assertEqual(
+            config["defaults"]["run"]["write_roots"],
+            [os.path.abspath(os.path.expanduser("~/workspace"))],
+        )
+        self.assertTrue(config["defaults"]["run"]["allow_ops"])
+        self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
+
     def test_mounts_codex_and_claude_home_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             real_home = os.path.join(tmp, "real-home")
