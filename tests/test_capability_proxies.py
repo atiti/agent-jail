@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest import mock
 
@@ -43,23 +44,46 @@ class CapabilityProxyTests(unittest.TestCase):
     def test_delegate_execute_returns_subprocess_output(self):
         with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
             mocked_run.return_value = mock.Mock(returncode=0, stdout="ok\n", stderr="")
-            result = run_delegate_proxy(
-                {"delegates": ["ops"]},
-                {
-                    "ops": {
-                        "name": "ops",
-                        "executor": "/usr/local/bin/delegate-exec",
-                        "allowed_tools": ["opsctl"],
-                        "strip_tool_name": True,
-                        "mode": "execute",
-                    }
-                },
-                "ops",
-                ["opsctl", "status"],
-            )
+            with mock.patch.dict(os.environ, {"AGENT_JAIL_HOST_HOME": "/Users/example", "AGENT_JAIL_ORIG_PATH": "/usr/bin:/bin"}, clear=False):
+                result = run_delegate_proxy(
+                    {"delegates": ["ops"]},
+                    {
+                        "ops": {
+                            "name": "ops",
+                            "executor": "/usr/local/bin/delegate-exec",
+                            "allowed_tools": ["opsctl"],
+                            "strip_tool_name": True,
+                            "mode": "execute",
+                        }
+                    },
+                    "ops",
+                    ["opsctl", "status"],
+                )
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["stdout"], "ok\n")
         mocked_run.assert_called_once()
+        self.assertEqual(mocked_run.call_args.kwargs["env"]["HOME"], "/Users/example")
+        self.assertEqual(mocked_run.call_args.kwargs["env"]["PATH"], "/usr/bin:/bin")
+
+    def test_delegate_execute_applies_configured_env(self):
+        with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
+            mocked_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            with mock.patch.dict(os.environ, {"AGENT_JAIL_HOST_HOME": "/Users/example"}, clear=False):
+                run_delegate_proxy(
+                    {"delegates": ["ops"]},
+                    {
+                        "ops": {
+                            "name": "ops",
+                            "executor": "/usr/local/bin/delegate-exec",
+                            "allowed_tools": ["./scripts/secret-tool.sh"],
+                            "mode": "execute",
+                            "set_env": {"SECRET_KEY_FILE": "~/keys.txt"},
+                        }
+                    },
+                    "ops",
+                    ["./scripts/secret-tool.sh", "status"],
+                )
+        self.assertEqual(mocked_run.call_args.kwargs["env"]["SECRET_KEY_FILE"], "/Users/example/keys.txt")
 
     def test_browser_automation_routes_to_host_proxy(self):
         result = run_browser_proxy({"browser_automation": True}, {"tool": "peekaboo", "action": "screenshot"})

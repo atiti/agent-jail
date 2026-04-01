@@ -54,7 +54,17 @@ def load_config(path=None):
     delegates = data.get("delegates")
     if not isinstance(delegates, list):
         delegates = []
-    data["delegates"] = [item for item in delegates if isinstance(item, dict) and item.get("name")]
+    normalized_delegates = []
+    for item in delegates:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        delegate = dict(item)
+        set_env = delegate.get("set_env")
+        if not isinstance(set_env, dict):
+            set_env = {}
+        delegate["set_env"] = {str(key): str(value) for key, value in set_env.items() if str(key).strip()}
+        normalized_delegates.append(delegate)
+    data["delegates"] = normalized_delegates
     filesystem = data.get("filesystem")
     if not isinstance(filesystem, dict):
         filesystem = {}

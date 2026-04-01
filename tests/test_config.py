@@ -114,3 +114,22 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
+
+    def test_load_config_normalizes_delegate_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "config.json")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "delegates": [
+                            {
+                                "name": "ops",
+                                "set_env": {"AGE_KEY_FILE": "~/keys.txt", "COUNT": 1},
+                            }
+                        ]
+                    },
+                    handle,
+                )
+            config = load_config(config_path)
+        self.assertEqual(config["delegates"][0]["set_env"]["AGE_KEY_FILE"], "~/keys.txt")
+        self.assertEqual(config["delegates"][0]["set_env"]["COUNT"], "1")

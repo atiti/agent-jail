@@ -143,6 +143,32 @@ When a configured delegate runs in `mode: "execute"`, `agent-jail-cap delegate .
 - it streams delegated stdout and stderr directly
 - it exits with the delegated command's real return code
 
+Delegated commands run outside the sandbox with the host user's `HOME` and original `PATH`, so host-side config and secret files stay usable without widening sandbox reads. You can also inject explicit delegate-only environment values from local config:
+
+```json
+{
+  "delegates": [
+    {
+      "name": "ops",
+      "mode": "execute",
+      "allowed_tools": ["privateinfractl", "./scripts/unifi-api.sh"],
+      "set_env": {
+        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
+      }
+    }
+  ]
+}
+```
+
+That keeps the secret material outside the jail while still allowing mediated commands like:
+
+```bash
+agent-jail-cap delegate ops privateinfractl status --service nas-unifi-controller
+agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
+```
+
+See [docs/delegates-and-secrets.md](docs/delegates-and-secrets.md) for the full pattern.
+
 Run with the built-in proxy enabled:
 
 ```bash

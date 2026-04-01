@@ -174,3 +174,24 @@ class ClassifierTests(unittest.TestCase):
         verdict = classify(intent, argv)
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "agent-launch")
+
+    def test_classify_agent_jail_cap_as_internal_bridge(self):
+        argv = ["agent-jail-cap", "delegate", "ops", "opsctl", "status"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "capability-bridge")
+
+    def test_classify_python_module_cap_bridge_as_internal_bridge(self):
+        argv = ["python3", "-m", "agent_jail.cap_cli", "delegate", "ops", "opsctl", "status"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "capability-bridge")
+
+    def test_classify_legacy_python_dash_cap_bridge_as_internal_bridge(self):
+        argv = ["python3", "-", "/tmp/agent-jail-123/.agent-jail/bin/agent-jail-cap", "delegate", "ops"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "capability-bridge")

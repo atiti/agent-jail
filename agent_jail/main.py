@@ -433,7 +433,7 @@ def run(argv=None):
             store,
             capabilities=session["capabilities"],
             delegates=config.get("delegates", []),
-            mounts=session["mounts"],
+            mounts=session["mounts"] + [{"path": tmp, "mode": "rw"}],
             deny_read_patterns=config.get("filesystem", {}).get("deny_read_patterns", []),
             event_sink=event_sink,
             log_stderr=bool(os.environ.get("AGENT_JAIL_LOG_STDERR")),
@@ -467,6 +467,7 @@ def run(argv=None):
                 "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(
                     config.get("filesystem", {}).get("deny_read_patterns", []), sort_keys=True
                 ),
+                "AGENT_JAIL_HOST_HOME": os.path.expanduser("~"),
                 "HOME": home,
                 "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
                 "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),

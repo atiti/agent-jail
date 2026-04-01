@@ -40,6 +40,7 @@ SAFE_CLEANUP_NAMES = {
     ".tox",
 }
 READ_PATH_TOOLS = {"cat", "head", "ls", "find", "grep", "rg", "sed", "sort", "tail"}
+CAPABILITY_BRIDGE_MODULE = "agent_jail.cap_cli"
 FLAG_VALUE_COUNTS = {
     "find": {"maxdepth": 1, "mindepth": 1, "type": 1, "name": 1, "path": 1},
     "grep": {"e": 1, "f": 1, "m": 1},
@@ -148,6 +149,28 @@ def _is_agent_launcher_argv(argv):
         base = os.path.basename(item)
         stem = base.split(".", 1)[0]
         if stem in AGENT_TOOLS:
+            return True
+    return False
+
+
+def _is_python_tool(tool):
+    base = os.path.basename(tool or "")
+    return base == "python" or base.startswith("python")
+
+
+def _is_internal_cap_bridge_argv(argv):
+    if not argv:
+        return False
+    tool = os.path.basename(argv[0])
+    if tool == "agent-jail-cap":
+        return True
+    if not _is_python_tool(tool):
+        return False
+    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == CAPABILITY_BRIDGE_MODULE:
+        return True
+    if len(argv) >= 3 and argv[1] == "-":
+        script_target = argv[2]
+        if os.path.basename(script_target) == "agent-jail-cap" and ".agent-jail" in script_target:
             return True
     return False
 
@@ -407,6 +430,12 @@ def classify(intent, argv, delegates=None, context=None):
             "risk": "low",
             "reason": "agent launch under agent-jail outer control",
             "category": "agent-launch",
+        }
+    if _is_internal_cap_bridge_argv(argv):
+        return {
+            "risk": "low",
+            "reason": "internal capability bridge under agent-jail control",
+            "category": "capability-bridge",
         }
     if tool in READ_ONLY_TOOLS:
         return {"risk": "low", "reason": "read-only tool", "category": "read-only"}

@@ -1,13 +1,8 @@
 #!/bin/sh
 
-SCRIPT_PATH="$0"
-REPO_ROOT="$(python3 - "$SCRIPT_PATH" <<'PY'
-import os
-import sys
-
-print(os.path.dirname(os.path.realpath(sys.argv[1])))
-PY
-)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="${AGENT_JAIL_SOURCE_ROOT:-$SCRIPT_DIR}"
+PYTHON_BIN="${AGENT_JAIL_PYTHON:-python3}"
 
 if [ -n "$PYTHONPATH" ]; then
   export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
@@ -15,4 +10,4 @@ else
   export PYTHONPATH="$REPO_ROOT"
 fi
 
-exec python3 -m agent_jail.cap_cli "$@"
+exec "$PYTHON_BIN" -m agent_jail.cap_cli "$@"
