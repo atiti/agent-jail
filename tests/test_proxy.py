@@ -149,3 +149,21 @@ class ProxyTests(unittest.TestCase):
                 events = [json.loads(line) for line in handle]
         self.assertTrue(any(event["action"] == "deny" and event["category"] == "network" for event in events))
         self.assertTrue(any("example.com:443" in event["raw"] for event in events))
+
+    def test_http_proxy_connect_failure_returns_502(self):
+        policy = ProxyPolicy(
+            [
+                {"kind": "network", "host": "127.0.0.1", "port": 9, "scheme": "tcp", "allow": True},
+            ],
+            default_allow=False,
+        )
+        server, _ = start_http_proxy(policy)
+        proxy_port = server.server_port
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"CONNECT 127.0.0.1:9 HTTP/1.1\r\nHost: 127.0.0.1:9\r\n\r\n")
+                response = client.recv(4096)
+                self.assertIn(b"502", response)
+        finally:
+            server.shutdown()
+            server.server_close()

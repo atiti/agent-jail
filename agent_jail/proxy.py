@@ -44,14 +44,23 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 def _relay(left, right):
     sockets = [left, right]
     while True:
-        ready, _, _ = select.select(sockets, [], [], 0.5)
+        try:
+            ready, _, _ = select.select(sockets, [], [], 0.5)
+        except OSError:
+            return
         if not ready:
             continue
         for src in ready:
-            data = src.recv(65536)
+            try:
+                data = src.recv(65536)
+            except OSError:
+                return
             if not data:
                 return
-            (right if src is left else left).sendall(data)
+            try:
+                (right if src is left else left).sendall(data)
+            except OSError:
+                return
 
 
 def _emit_proxy_event(event_sink, action, transport, method, host_name, port_num, scheme, reason):
@@ -97,6 +106,8 @@ def _pack_address(host, port):
 
 def make_proxy_server(host, port, policy, event_sink=None):
     class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def _decision(self, method, host_name, port_num, scheme="tcp"):
             verdict = policy.decide(method, host_name, port_num, scheme=scheme)
             if verdict["decision"] == "deny":
@@ -111,7 +122,12 @@ def make_proxy_server(host, port, policy, event_sink=None):
             port_num = int(port_text or "443")
             if not self._decision("CONNECT", host_name, port_num):
                 return
-            upstream = socket.create_connection((host_name, port_num), timeout=10)
+            try:
+                upstream = socket.create_connection((host_name, port_num), timeout=10)
+            except OSError:
+                _emit_proxy_event(event_sink, "deny", "http", "CONNECT", host_name, port_num, "tcp", "connect-error")
+                self.send_error(502, f"upstream connect failed: {host_name}:{port_num}")
+                return
             self.send_response(200, "Connection Established")
             self.end_headers()
             try:
@@ -143,17 +159,22 @@ def make_proxy_server(host, port, policy, event_sink=None):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
             conn_cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
             conn = conn_cls(host_name, port_num, timeout=15)
-            path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in {"proxy-connection", "connection", "host"}}
-            conn.request(self.command, path, body=body, headers=headers)
-            resp = conn.getresponse()
-            self.send_response(resp.status, resp.reason)
-            for key, value in resp.getheaders():
-                if key.lower() != "transfer-encoding":
-                    self.send_header(key, value)
-            self.end_headers()
-            self.wfile.write(resp.read())
-            conn.close()
+            try:
+                path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+                headers = {k: v for k, v in self.headers.items() if k.lower() not in {"proxy-connection", "connection", "host"}}
+                conn.request(self.command, path, body=body, headers=headers)
+                resp = conn.getresponse()
+                self.send_response(resp.status, resp.reason)
+                for key, value in resp.getheaders():
+                    if key.lower() != "transfer-encoding":
+                        self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(resp.read())
+            except (OSError, http.client.HTTPException):
+                _emit_proxy_event(event_sink, "deny", "http", self.command, host_name, port_num, scheme, "forward-error")
+                self.send_error(502, f"upstream request failed: {host_name}:{port_num}")
+            finally:
+                conn.close()
 
         def log_message(self, _fmt, *_args):
             return
