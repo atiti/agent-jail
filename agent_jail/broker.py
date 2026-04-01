@@ -1,4 +1,5 @@
 import json
+import fnmatch
 import os
 import shlex
 import socket
@@ -36,6 +37,16 @@ SAFE_CLEANUP_NAMES = {
     ".ruff_cache",
     ".hypothesis",
     ".tox",
+}
+READ_PATH_TOOLS = {"cat", "head", "ls", "find", "grep", "rg", "sed", "sort", "tail"}
+FLAG_VALUE_COUNTS = {
+    "find": {"maxdepth": 1, "mindepth": 1, "type": 1, "name": 1, "path": 1},
+    "grep": {"e": 1, "f": 1, "m": 1},
+    "head": {"n": 1, "c": 1},
+    "ls": {"d": 0},
+    "rg": {"e": 1, "g": 1, "m": 1},
+    "sort": {"o": 1, "t": 1, "k": 1},
+    "tail": {"n": 1, "c": 1},
 }
 
 
@@ -146,6 +157,138 @@ def _classify_safe_cleanup(intent, argv, context):
     cwd = context.get("cwd") if isinstance(context, dict) else None
     if all(_safe_cleanup_target(target, cwd) for target in targets):
         return {"risk": "low", "reason": "generated artifact cleanup", "category": "cleanup"}
+    return None
+
+
+def _command_path_args(argv):
+    if not argv:
+        return []
+    tool = os.path.basename(argv[0])
+    items = argv[1:]
+    if tool == "cat":
+        return [item for item in items if not item.startswith("-")]
+    if tool in {"head", "tail", "sort", "ls"}:
+        return _non_flag_paths(tool, items)
+    if tool == "sed":
+        parts = [item for item in items if not item.startswith("-")]
+        return parts[1:] if len(parts) > 1 else []
+    if tool in {"grep", "rg"}:
+        parts = _non_flag_parts(tool, items)
+        if "--files" in items:
+            return parts
+        return parts[1:] if len(parts) > 1 else []
+    if tool == "find":
+        paths = []
+        for item in items:
+            if item in {"(", ")", "!", "-o", "-and", "-or"}:
+                break
+            if item.startswith("-"):
+                break
+            paths.append(item)
+        return paths or ["."]
+    return []
+
+
+def _non_flag_parts(tool, items):
+    result = []
+    skip = 0
+    value_flags = FLAG_VALUE_COUNTS.get(tool, {})
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if skip:
+            skip -= 1
+            index += 1
+            continue
+        if item == "--":
+            result.extend(items[index + 1 :])
+            break
+        if item.startswith("--"):
+            name = item[2:]
+            if "=" in name:
+                name = name.split("=", 1)[0]
+            skip = value_flags.get(name, 0)
+            index += 1
+            continue
+        if item.startswith("-") and item != "-" and item not in {"-"}:
+            name = item.lstrip("-")
+            skip = value_flags.get(name, 0)
+            index += 1
+            continue
+        result.append(item)
+        index += 1
+    return result
+
+
+def _non_flag_paths(tool, items):
+    parts = _non_flag_parts(tool, items)
+    return [item for item in parts if not item.isdigit()]
+
+
+def _allowed_read_roots(context):
+    roots = [os.path.abspath(path) for path in (context or {}).get("read_roots", []) if path]
+    cwd = (context or {}).get("cwd")
+    if cwd:
+        roots.append(os.path.abspath(cwd))
+    deduped = []
+    for path in roots:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def _matches_deny_pattern(candidate, patterns):
+    expanded = os.path.abspath(os.path.expanduser(candidate))
+    for pattern in patterns or ():
+        normalized = os.path.abspath(os.path.expanduser(pattern))
+        if fnmatch.fnmatch(expanded, normalized):
+            return normalized
+    return None
+
+
+def _path_within_roots(path, cwd, roots):
+    candidate = os.path.abspath(path if os.path.isabs(path) else os.path.join(cwd or os.getcwd(), path))
+    for root in roots:
+        try:
+            if os.path.commonpath([candidate, root]) == root:
+                return candidate
+        except ValueError:
+            continue
+    return None
+
+
+def _read_scope_violation(intent, argv, context, analysis=None):
+    roots = _allowed_read_roots(context)
+    if not roots:
+        return None
+    deny_patterns = (context or {}).get("deny_read_patterns", [])
+    cwd = (context or {}).get("cwd")
+    commands = []
+    paths = []
+    if analysis:
+        commands.extend(analysis.get("commands", []))
+        paths.extend(analysis.get("read_paths", []))
+    if intent.get("tool") in READ_PATH_TOOLS:
+        paths.extend(_command_path_args(argv))
+    for path in paths:
+        matched = _matches_deny_pattern(path if os.path.isabs(path) else os.path.join(cwd or os.getcwd(), path), deny_patterns)
+        if matched:
+            return {
+                "risk": "critical",
+                "reason": f"read path is blocked by policy: {path}",
+                "category": "read-scope",
+            }
+        if not _path_within_roots(path, cwd, roots):
+            return {
+                "risk": "critical",
+                "reason": f"read path is outside allowed roots: {path}",
+                "category": "read-scope",
+            }
+    for command in commands:
+        nested_intent = normalize(command)
+        nested = _read_scope_violation(nested_intent, command, context, analysis=None)
+        if nested:
+            return nested
     return None
 
 
@@ -260,6 +403,8 @@ class BrokerServer:
         policy_store,
         capabilities=None,
         delegates=None,
+        mounts=None,
+        deny_read_patterns=None,
         event_sink=None,
         log_stderr=False,
         llm_policy=None,
@@ -269,6 +414,8 @@ class BrokerServer:
         self.policy_store = policy_store
         self.capabilities = capabilities or {}
         self.delegates = {item["name"]: item for item in (delegates or []) if item.get("name")}
+        self.mounts = mounts or []
+        self.deny_read_patterns = deny_read_patterns or []
         self.server = None
         self.event_sink = event_sink
         self.log_stderr = log_stderr
@@ -304,12 +451,30 @@ class BrokerServer:
             return {"decision": "deny", "reason": "unsupported request"}
         argv = request["argv"]
         raw = request.get("raw") or shlex.join(argv)
-        context = {"cwd": request.get("cwd")}
+        context = {
+            "cwd": request.get("cwd"),
+            "read_roots": [mount.get("path") for mount in self.mounts if mount.get("path")],
+            "deny_read_patterns": list(self.deny_read_patterns),
+        }
         analysis = analyze_invocation(argv, context.get("cwd"))
         effective_argv = analysis.get("argv") or argv
         intent = normalize(effective_argv)
         if analysis.get("template"):
             intent["template"] = analysis["template"]
+        read_guard = _read_scope_violation(intent, effective_argv, context, analysis=analysis)
+        if read_guard:
+            self._log(
+                "DENY",
+                raw,
+                read_guard.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, read_guard),
+                risk=read_guard["risk"],
+                reason=read_guard.get("reason"),
+            )
+            return {"decision": "deny", "reason": read_guard["reason"]}
         matched = self.policy_store.match(intent)
         if matched:
             decision = "allow" if matched["allow"] else "deny"

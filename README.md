@@ -252,6 +252,8 @@ Use `strip_tool_name: true` when the delegate executor is already a tool-specifi
 
 The optional `filesystem` section lets you widen read-only visibility and add extra writable roots without exposing your entire home directory. `deny_read_patterns` are expanded from your local home and rendered into the macOS `sandbox-exec` profile as explicit read denials, so broad read-only roots like `~/build` can still exclude secret-like files.
 
+The broker also enforces read scope for explicit file targets. A command can still be low-risk in general and be denied if it tries to read outside the configured project and read-only roots. For example, `cat README.md` in a mounted repo can pass while `cat /etc/passwd` is denied.
+
 You can also configure Azure OpenAI for offline rule suggestion and low-risk auto-promotion:
 
 ```json

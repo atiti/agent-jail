@@ -22,6 +22,7 @@
 - Added a narrow JIT rule engine for unknown low-risk general commands, with Azure-backed confidence checks, session caching, and review-required fallback on uncertainty.
 - Added pending JIT review storage plus `agent-jail review list|approve|reject` so uncertain commands can be operator-approved after the first denial.
 - Added interpreter payload analysis for Python, shell, Ruby, and Perl so JIT reviews and approved rules target semantic script behavior instead of launcher noise like `sandbox-exec *`.
+- Added broker-side read-scope enforcement for explicit file reads so low-risk tools and interpreted scripts can still be denied when they target paths outside configured readable roots.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.

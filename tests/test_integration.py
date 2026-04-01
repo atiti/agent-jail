@@ -228,3 +228,42 @@ class IntegrationTests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("REAL-RM -rf agent_jail/__pycache__ tests/__pycache__", proc.stdout)
+
+    def test_wrapper_denies_read_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            wrapper_dir = os.path.join(tmp, "bin")
+            real_dir = os.path.join(tmp, "real")
+            repo_dir = os.path.join(tmp, "repo")
+            os.mkdir(real_dir)
+            os.mkdir(repo_dir)
+            cat_path = os.path.join(real_dir, "cat")
+            with open(cat_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(cat_path, 0o755)
+
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(sock_path, store, mounts=[{"path": repo_dir, "mode": "rw"}])
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+
+            write_wrappers(wrapper_dir, ["cat"])
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_SOCKET": sock_path,
+                    "AGENT_JAIL_ORIG_PATH": real_dir,
+                    "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
+                }
+            )
+            proc = subprocess.run(
+                ["cat", "/etc/passwd"],
+                text=True,
+                capture_output=True,
+                env=env,
+                cwd=repo_dir,
+            )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("outside allowed roots", proc.stderr)

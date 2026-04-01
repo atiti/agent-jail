@@ -77,6 +77,7 @@ class _PythonAnalyzer(ast.NodeVisitor):
         self.delete = False
         self.network = False
         self.dynamic_code = False
+        self.read_paths = []
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -105,6 +106,10 @@ class _PythonAnalyzer(ast.NodeVisitor):
         if name in {"open", "pathlib.Path.write_text", "pathlib.Path.write_bytes", "Path.write_text", "Path.write_bytes"}:
             if _is_write_call(name, node):
                 self.file_write = True
+            elif name == "open" and node.args:
+                path = _literal_str(node.args[0])
+                if path:
+                    self.read_paths.append(path)
         if name in {
             "os.remove",
             "os.unlink",
@@ -217,6 +222,8 @@ def _analyze_python_source(source):
                 "category": "general",
                 "template": "python read-only subprocess script",
                 "reason": "python read-only subprocess script",
+                "commands": visitor.literal_subprocesses,
+                "read_paths": visitor.read_paths,
             }
         if any(item == "destructive" for item in categories):
             return {
@@ -224,9 +231,24 @@ def _analyze_python_source(source):
                 "category": "general",
                 "template": "python destructive subprocess script",
                 "reason": "python destructive subprocess script",
+                "commands": visitor.literal_subprocesses,
+                "read_paths": visitor.read_paths,
             }
-        return {"risk": "medium", "category": "general", "template": "python subprocess script", "reason": "python subprocess script"}
-    return {"risk": "low", "category": "general", "template": "python local inspection script", "reason": "python local inspection script"}
+        return {
+            "risk": "medium",
+            "category": "general",
+            "template": "python subprocess script",
+            "reason": "python subprocess script",
+            "commands": visitor.literal_subprocesses,
+            "read_paths": visitor.read_paths,
+        }
+    return {
+        "risk": "low",
+        "category": "general",
+        "template": "python local inspection script",
+        "reason": "python local inspection script",
+        "read_paths": visitor.read_paths,
+    }
 
 
 def _heuristic_script_summary(source, language):
@@ -304,7 +326,8 @@ def analyze_invocation(argv, cwd=None):
             result = _summarize_leaf_commands(analysis["commands"])
         except ShellAnalysisError:
             result = {"risk": "medium", "category": "general", "template": "shell script", "reason": "unparseable shell script"}
-        return {"argv": effective, "language": language, "source_path": path, **result}
+            analysis = {"commands": []}
+        return {"argv": effective, "language": language, "source_path": path, "commands": analysis["commands"], **result}
     if language in {"ruby", "perl"} and source:
         result = _heuristic_script_summary(source, language)
         return {"argv": effective, "language": language, "source_path": path, **result}
