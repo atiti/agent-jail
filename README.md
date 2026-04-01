@@ -109,6 +109,13 @@ python3 agent-jail review approve <id>
 python3 agent-jail review reject <id>
 ```
 
+Run the manual edge-case validation suite:
+
+```bash
+bash scripts/manual_policy_suite.sh --list
+bash scripts/manual_policy_suite.sh
+```
+
 ## How it works
 
 1. `agent-jail` creates a temporary session directory.

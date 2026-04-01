@@ -1,0 +1,60 @@
+# Manual Policy Suite
+
+Use [manual_policy_suite.sh](/Users/attilasukosd/build/agent-jail/scripts/manual_policy_suite.sh) to hand-run a non-destructive edge-case validation pass against `agent-jail`.
+
+What it does:
+
+- creates an isolated temporary `AGENT_JAIL_HOME` by default
+- writes a deterministic config with:
+  - `~/build` readable
+  - `~/workspace` writable
+  - JIT disabled for stable outcomes
+- runs a set of allow/deny edge cases
+- prints colorized `PASS`, `FAIL`, or `OBSERVE` for each case
+- groups cases by area such as read scope, interpreters, devices, and procfs
+- keeps the suite extensible through a simple case registry in the script
+
+List the cases without running them:
+
+```bash
+bash scripts/manual_policy_suite.sh --list
+```
+
+Run the suite:
+
+```bash
+bash scripts/manual_policy_suite.sh
+```
+
+Keep the temporary state directory for inspection:
+
+```bash
+bash scripts/manual_policy_suite.sh --keep-state
+```
+
+Use an explicit home directory:
+
+```bash
+bash scripts/manual_policy_suite.sh --home /tmp/agent-jail-manual
+```
+
+Covered cases include:
+
+- repo-local reads that should pass
+- direct system file reads that should fail
+- relative escapes outside the repo
+- shell pipelines over forbidden paths
+- Python literal reads of forbidden paths
+- `/dev/fd/*` path reads
+- `/proc` reads when available on the host
+- an `OBSERVE` case for `dmesg`, which is intentionally reported as current behavior rather than locked to a pass/fail expectation
+
+To extend the suite, add another `add_case` entry in [manual_policy_suite.sh](/Users/attilasukosd/build/agent-jail/scripts/manual_policy_suite.sh). Each case declares:
+
+- name
+- expectation (`allow`, `deny`, `deny-or-missing`, or `observe`)
+- group
+- description
+- command argv
+
+The suite is meant to prove current policy boundaries without mutating your real `~/.agent-jail/policy.json`.
