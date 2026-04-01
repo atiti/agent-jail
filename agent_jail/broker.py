@@ -134,6 +134,24 @@ def _is_agent_tool(tool):
     return base in AGENT_TOOLS or stem in AGENT_TOOLS
 
 
+def _is_agent_launcher_argv(argv):
+    if not argv:
+        return False
+    tool = os.path.basename(argv[0])
+    if _is_agent_tool(tool):
+        return True
+    if tool not in {"node", "nodejs"}:
+        return False
+    for item in argv[1:]:
+        if item.startswith("-"):
+            continue
+        base = os.path.basename(item)
+        stem = base.split(".", 1)[0]
+        if stem in AGENT_TOOLS:
+            return True
+    return False
+
+
 def _safe_cleanup_target(target, cwd):
     if not cwd or not target:
         return False
@@ -384,7 +402,7 @@ def classify(intent, argv, delegates=None, context=None):
             return {"risk": "low", "reason": "read-only sort", "category": "read-only"}
     if tool in {"chmod", "chown"} or raw.startswith("rm -rf"):
         return {"risk": "high", "reason": "destructive mutation", "category": "destructive"}
-    if _is_agent_tool(tool) and "--dangerously-bypass-approvals-and-sandbox" in argv[1:]:
+    if _is_agent_launcher_argv(argv) and "--dangerously-bypass-approvals-and-sandbox" in argv[1:]:
         return {
             "risk": "low",
             "reason": "agent launch under agent-jail outer control",

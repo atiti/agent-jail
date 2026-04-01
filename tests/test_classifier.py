@@ -167,3 +167,10 @@ class ClassifierTests(unittest.TestCase):
         verdict = classify(intent, argv)
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "agent-launch")
+
+    def test_classify_node_codex_launcher_as_agent_launch(self):
+        argv = ["node", "/opt/codex/bin/codex.js", "--dangerously-bypass-approvals-and-sandbox"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "agent-launch")
