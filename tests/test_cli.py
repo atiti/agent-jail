@@ -224,7 +224,7 @@ class CLITests(unittest.TestCase):
                 "run",
                 "--proxy",
                 "--proxy-commands-only",
-                sys.executable,
+                "python3",
                 "-c",
                 (
                     "import json, os, subprocess; "
