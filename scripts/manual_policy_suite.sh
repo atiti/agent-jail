@@ -458,7 +458,9 @@ run_jit_case() {
       fi
       ;;
     live-azure)
-      if [ "${status}" -eq 0 ]; then
+      if [[ "${output}" == *"jit request failed:"* ]] || [[ "${output}" == *"jit http error:"* ]] || [[ "${output}" == *"jit provider unavailable:"* ]] || [[ "${output}" == *"jit response"* ]]; then
+        result="FAIL"
+      elif [ "${status}" -eq 0 ]; then
         has_rule=$(AGENT_JAIL_EXPECTED_TEMPLATE="${template}" policy_query "${home}" $'import os\nprint(any(rule.get("constraints", {}).get("template") == os.environ["AGENT_JAIL_EXPECTED_TEMPLATE"] for rule in data.get("rules", [])))')
         if [ "${has_rule}" = "True" ]; then
           result="PASS"

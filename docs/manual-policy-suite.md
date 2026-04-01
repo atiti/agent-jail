@@ -88,4 +88,11 @@ Live Azure mode accepts either:
 
 It is a smoke test for real model behavior, not a deterministic regression gate.
 
+These outcomes are explicit failures in `--mode live-azure`:
+
+- `jit request failed: timeout`
+- `jit http error: ...`
+- `jit provider unavailable: ...`
+- malformed JIT response payload errors
+
 The suite is meant to prove current policy boundaries without mutating your real `~/.agent-jail/policy.json`.
