@@ -121,6 +121,15 @@ Broker decisions are recorded as structured JSONL events under `~/.agent-jail/ev
 
 Those same event logs power `agent-jail suggest-rules`, which clusters repeated command patterns and can propose broader allow rules without widening to path-specific one-offs.
 
+For common interpreters, the broker now reasons about script payloads instead of only the outer launcher command:
+
+- `sandbox-exec -f ... python3 -c ...` is analyzed as a Python script invocation, not `sandbox-exec *`
+- `python3 -c ...` and local `.py` files get Python-specific static analysis
+- `sh` / `bash` / `zsh` command strings and local shell scripts are summarized semantically
+- `ruby` and `perl` get conservative heuristic scanning
+
+This keeps pending reviews and learned rules focused on semantic templates such as `python read-only subprocess script` instead of backend wrapper noise.
+
 The session also resolves capabilities:
 
 - project mounts are mapped read-only or read-write
@@ -175,6 +184,8 @@ Capability rules can also be stored in the same policy file, for example:
 - `browser_automation`
 
 For shell command strings such as `bash -c "..."`, `agent-jail` now analyzes chained segments, pipelines, subshells, and command substitutions for policy before execution. The original shell string is still executed unchanged if it passes.
+
+Interpreter-driven commands use the same idea: payloads are inspected for risk and generalized into semantic templates, but the original command line is still what executes if policy allows it.
 
 ## Network proxy
 

@@ -10,6 +10,7 @@ from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
 from agent_jail.events import render_event
 from agent_jail.rule_jit import JITRuleEngine
+from agent_jail.script_analysis import analyze_invocation
 from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
@@ -39,6 +40,8 @@ SAFE_CLEANUP_NAMES = {
 
 
 def event_template(intent, verdict=None):
+    if intent.get("template"):
+        return intent["template"]
     tool = intent.get("tool") or ""
     action = intent.get("action") or "exec"
     category = (verdict or {}).get("category")
@@ -300,10 +303,14 @@ class BrokerServer:
         if req_type != "exec":
             return {"decision": "deny", "reason": "unsupported request"}
         argv = request["argv"]
-        intent = normalize(argv)
-        matched = self.policy_store.match(intent)
         raw = request.get("raw") or shlex.join(argv)
         context = {"cwd": request.get("cwd")}
+        analysis = analyze_invocation(argv, context.get("cwd"))
+        effective_argv = analysis.get("argv") or argv
+        intent = normalize(effective_argv)
+        if analysis.get("template"):
+            intent["template"] = analysis["template"]
+        matched = self.policy_store.match(intent)
         if matched:
             decision = "allow" if matched["allow"] else "deny"
             self._log(
@@ -318,7 +325,23 @@ class BrokerServer:
                 reason="matched policy",
             )
             return {"decision": decision, "reason": "matched policy"}
-        verdict = classify(intent, argv, delegates=self.delegates.values(), context=context)
+        verdict = None
+        if analysis.get("language") in {"python", "ruby", "perl"}:
+            verdict = {
+                "risk": analysis.get("risk", "low"),
+                "reason": analysis.get("reason", "script analysis"),
+                "category": analysis.get("category", "general"),
+            }
+        elif analysis.get("language") == "shell" and not (
+            intent["tool"] in {"sh", "bash", "zsh"} and intent["action"] == "command-string"
+        ):
+            verdict = {
+                "risk": analysis.get("risk", "low"),
+                "reason": analysis.get("reason", "script analysis"),
+                "category": analysis.get("category", "general"),
+            }
+        if verdict is None:
+            verdict = classify(intent, effective_argv, delegates=self.delegates.values(), context=context)
         risk = verdict["risk"]
         if risk == "critical" or verdict.get("category") in SENSITIVE_DENY_CATEGORIES:
             self._log(
@@ -356,6 +379,10 @@ class BrokerServer:
                 and jit.get("rule")
                 and jit_config.get("jit_auto_apply_low_risk", True)
             ):
+                if intent.get("template"):
+                    constraints = dict((jit["rule"].get("constraints") or {}))
+                    constraints.setdefault("template", intent["template"])
+                    jit["rule"]["constraints"] = constraints
                 self.policy_store.add_rule(jit["rule"])
                 self._log(
                     "ALLOW",
@@ -423,7 +450,7 @@ class BrokerServer:
                     "template": ((jit.get("rule") or {}).get("metadata") or {}).get("template", template),
                     "reason": jit.get("reason", "unknown low-impact command"),
                     "confidence": jit.get("confidence"),
-                    "rule": jit.get("rule"),
+                    "rule": _review_rule_with_template(jit.get("rule"), intent.get("template")),
                 }
             )
             return {"decision": "deny", "reason": f"jit-review-required[{pending['id']}]: {jit.get('reason', 'unknown low-impact command')}"}
@@ -500,6 +527,16 @@ class BrokerServer:
             self.event_sink.emit(event)
         if self.log_stderr:
             print(render_event(event), file=sys.stderr, flush=True)
+
+
+def _review_rule_with_template(rule, template):
+    if not rule or not template:
+        return rule
+    item = dict(rule)
+    constraints = dict(item.get("constraints") or {})
+    constraints.setdefault("template", template)
+    item["constraints"] = constraints
+    return item
 
 
 def broker_request(sock_path, payload):

@@ -51,6 +51,7 @@ class JITRuleEngine:
                 "action": intent.get("action"),
                 "target": intent.get("target"),
                 "flags": intent.get("flags", []),
+                "template": intent.get("template"),
             },
             "raw": raw,
             "template": template,
@@ -66,12 +67,12 @@ class JITRuleEngine:
             "response_schema_hint": {
                 "decision_hint": "allow",
                 "confidence": 0.91,
-                "generalized_template": "tree *",
+                "generalized_template": template,
                 "candidate_rule": {
                     "kind": "exec",
-                    "tool": "tree",
-                    "action": "exec",
-                    "constraints": {},
+                    "tool": intent.get("tool"),
+                    "action": intent.get("action"),
+                    "constraints": {"template": template} if intent.get("template") else {},
                     "category": "general",
                     "risk": "low",
                 },
@@ -178,12 +179,16 @@ class JITRuleEngine:
             "source": "azure_openai_jit",
         }
         if candidate.get("tool") == intent.get("tool") and candidate.get("action") == intent.get("action"):
+            constraints = candidate.get("constraints") or {}
+            if intent.get("template"):
+                constraints = dict(constraints)
+                constraints.setdefault("template", generalized_template)
             result["rule"] = {
                 "kind": "exec",
                 "tool": candidate["tool"],
                 "action": candidate["action"],
                 "allow": True,
-                "constraints": candidate.get("constraints") or {},
+                "constraints": constraints,
                 "metadata": {
                     "category": candidate.get("category", "general"),
                     "confidence": confidence,

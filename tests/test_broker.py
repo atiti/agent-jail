@@ -96,3 +96,77 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(len(store.pending_reviews), 1)
         self.assertIn(store.pending_reviews[0]["id"], first["reason"])
         self.assertIn(store.pending_reviews[0]["id"], second["reason"])
+
+    def test_jit_review_uses_semantic_template_for_python_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.4,
+                        "reason": "Low-risk python inspection script.",
+                        "rule": {
+                            "kind": "exec",
+                            "tool": "python3",
+                            "action": "exec",
+                            "allow": True,
+                            "constraints": {},
+                            "metadata": {"template": "python read-only subprocess script"},
+                        },
+                    }
+                ),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "sandbox-exec",
+                        "-f",
+                        "/tmp/jail.sb",
+                        "/opt/homebrew/bin/python3",
+                        "-c",
+                        "import subprocess; subprocess.run(['tree', '-L', '2'])",
+                    ],
+                    "raw": "sandbox-exec -f /tmp/jail.sb /opt/homebrew/bin/python3 -c \"import subprocess; subprocess.run(['tree', '-L', '2'])\"",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("jit-review-required", result["reason"])
+        self.assertEqual(store.pending_reviews[0]["tool"], "python3")
+        self.assertEqual(store.pending_reviews[0]["template"], "python read-only subprocess script")
+        self.assertEqual(store.pending_reviews[0]["rule"]["constraints"]["template"], "python read-only subprocess script")
+
+    def test_policy_match_uses_semantic_template_for_python_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            store.add_rule(
+                {
+                    "kind": "exec",
+                    "tool": "python3",
+                    "action": "exec",
+                    "allow": True,
+                    "constraints": {"template": "python read-only subprocess script"},
+                }
+            )
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, jit_engine=_StubJIT({"decision_hint": "ask"}))
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "sandbox-exec",
+                        "-f",
+                        "/tmp/jail.sb",
+                        "/opt/homebrew/bin/python3",
+                        "-c",
+                        "import subprocess; subprocess.run(['tree', '-L', '2'])",
+                    ],
+                    "raw": "sandbox-exec -f /tmp/jail.sb /opt/homebrew/bin/python3 -c \"import subprocess; subprocess.run(['tree', '-L', '2'])\"",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["reason"], "matched policy")
