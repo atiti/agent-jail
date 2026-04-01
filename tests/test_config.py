@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
                 "read_only_roots": [],
                 "write_roots": [],
                 "allow_ops": False,
+                "allow_delegates": [],
                 "project_mode": "",
             },
         )
@@ -97,6 +98,7 @@ class ConfigTests(unittest.TestCase):
                                 "read_only_roots": ["~/build", "", 1],
                                 "write_roots": ["~/workspace"],
                                 "allow_ops": True,
+                                "allow_delegates": ["local-secrets", "", 1],
                                 "project_mode": "cwd",
                             }
                         }
@@ -113,6 +115,7 @@ class ConfigTests(unittest.TestCase):
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
+        self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
 
     def test_load_config_normalizes_delegate_env(self):

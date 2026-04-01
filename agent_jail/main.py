@@ -180,6 +180,7 @@ def parse_args(argv=None):
     config_set.add_argument("--read-only-root", action="append", default=[])
     config_set.add_argument("--write-root", action="append", default=[])
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
+    config_set.add_argument("--allow-delegate", action="append", default=[])
     config_set.add_argument("--project-mode", choices=["cwd"], default=None)
     return parser, parser.parse_args(argv)
 
@@ -363,6 +364,8 @@ def handle_config(args):
         run_defaults["write_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.write_root]
     if args.allow_ops is not None:
         run_defaults["allow_ops"] = bool(args.allow_ops)
+    if args.allow_delegate:
+        run_defaults["allow_delegates"] = sorted(set(args.allow_delegate))
     if args.project_mode is not None:
         run_defaults["project_mode"] = args.project_mode
     config.setdefault("defaults", {})
@@ -405,7 +408,8 @@ def run(argv=None):
             f"session-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}.jsonl",
         )
         store = PolicyStore(os.path.join(home, "policy.json"))
-        delegate_names = set(args.allow_delegate or [])
+        delegate_names = set(run_defaults.get("allow_delegates", []))
+        delegate_names.update(args.allow_delegate or [])
         allow_ops = run_defaults.get("allow_ops", False) if args.allow_ops is None else bool(args.allow_ops)
         if allow_ops:
             delegate_names.add("ops")

@@ -43,6 +43,7 @@
 - Allowed the local `ati-cto` brief generator script invocation as a narrow read-only fast path so expected `python .../ati_cto_brief.py --local-only` probes do not fall into JIT review.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.
 - Added a first secret-capability model: local `secrets` config, `allowed_secrets` delegate scoping, env-var based secret requirement detection for interpreted commands, direct-run deny guidance, and delegate-side injection of only the required secret env.
+- Added `defaults.run.allow_delegates` so selected delegates such as `local-secrets` can be enabled automatically for plain `agent-jail run ...` sessions.
 - Added unit and integration tests covering CLI flow, policy matching, backend selection, proxy policy, and wrapper execution.
 - fix(wrapper): broker top-level `python`/`python3`/`node` invocations instead of bypassing wrapper mediation on direct runs
 - test(ci): add an end-to-end regression for denying top-level `python3 -c` reads outside allowed roots

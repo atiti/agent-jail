@@ -11,6 +11,7 @@ The `defaults.run` section supports:
 - `read_only_roots`
 - `write_roots`
 - `allow_ops`
+- `allow_delegates`
 - `project_mode`
 
 Current `project_mode` values:
@@ -26,6 +27,7 @@ Current `project_mode` values:
       "read_only_roots": ["~/build"],
       "write_roots": ["~/workspace"],
       "allow_ops": true,
+      "allow_delegates": ["local-secrets"],
       "project_mode": "cwd"
     }
   }
@@ -38,6 +40,7 @@ With this profile:
 - `~/build` is mounted read-only
 - `~/workspace` is mounted read-write
 - ops capability is enabled by default
+- `local-secrets` is allowed by default
 
 Explicit CLI flags still win. For example:
 
@@ -59,5 +62,6 @@ python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
   --allow-ops \
+  --allow-delegate local-secrets \
   --project-mode cwd
 ```

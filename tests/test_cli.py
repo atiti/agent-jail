@@ -67,6 +67,7 @@ class CLITests(unittest.TestCase):
                                 "read_only_roots": [build_root],
                                 "write_roots": [workspace_root],
                                 "allow_ops": True,
+                                "allow_delegates": ["local-secrets"],
                                 "project_mode": "cwd",
                             }
                         }
@@ -97,6 +98,7 @@ class CLITests(unittest.TestCase):
         self.assertIn({"path": os.path.realpath(build_root), "mode": "ro"}, mounts)
         self.assertIn({"path": os.path.realpath(workspace_root), "mode": "rw"}, mounts)
         self.assertTrue(capabilities["ops_exec"])
+        self.assertIn("local-secrets", capabilities["delegates"])
 
     def test_run_includes_local_skill_roots_as_read_only_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,6 +155,8 @@ class CLITests(unittest.TestCase):
                 "--write-root",
                 "~/workspace",
                 "--allow-ops",
+                "--allow-delegate",
+                "local-secrets",
                 "--project-mode",
                 "cwd",
                 env={"AGENT_JAIL_HOME": tmp},
@@ -169,6 +173,7 @@ class CLITests(unittest.TestCase):
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
+        self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
 
     def test_mounts_codex_and_claude_home_by_default(self):

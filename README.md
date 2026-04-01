@@ -237,6 +237,7 @@ python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
   --allow-ops \
+  --allow-delegate local-secrets \
   --project-mode cwd
 ```
 
