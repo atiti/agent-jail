@@ -330,7 +330,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(env["HTTPS_PROXY"], "http://127.0.0.1:5000")
         self.assertNotIn("ALL_PROXY", env)
         self.assertNotIn("SOCKS_PROXY", env)
-        self.assertNotIn("SSL_CERT_FILE", env)
+        self.assertEqual(env["SSL_CERT_FILE"], "/tmp/jail-cert.pem")
         self.assertNotIn("SSL_CERT_DIR", env)
 
     def test_print_launch_env_writes_proxy_subset_to_stderr(self):

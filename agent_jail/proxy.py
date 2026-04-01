@@ -144,6 +144,12 @@ def make_proxy_server(host, port, policy, event_sink=None, debug=False):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        def handle(self):
+            try:
+                super().handle()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
         def _decision(self, method, host_name, port_num, scheme="tcp"):
             verdict = policy.decide(method, host_name, port_num, scheme=scheme)
             if verdict["decision"] == "deny":

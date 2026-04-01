@@ -87,7 +87,7 @@ def apply_target_env_profile(env, target_argv, proxy_mode=None):
         env.pop(key, None)
     env.update(preserved)
     if target_name == "codex" and proxy_mode == "codex-http":
-        for key in ("ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+        for key in ("ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_DIR"):
             env.pop(key, None)
     return env
 

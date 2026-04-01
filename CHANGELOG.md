@@ -9,6 +9,7 @@
 - Hardened the SOCKS5 `CONNECT` path to return explicit upstream-failure replies and clear connect-phase timeouts before long-lived relays, reducing reset-heavy failures for proxy-aware clients.
 - Added a Codex-specific launch env profile that strips inherited host proxy and certificate variables before launch, preserving only the `agent-jail`-managed proxy/cert values needed for the selected proxy mode.
 - Added `--proxy-mode codex-http` plus `--print-launch-env` to support a cleaner Codex/MCP-compatible HTTP proxy profile and make launch-env debugging explicit from the CLI.
+- Adjusted `codex-http` to preserve `SSL_CERT_FILE` while still stripping SOCKS and `SSL_CERT_DIR`, and hardened the HTTP proxy handler to ignore client reset noise during request-line reads.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.

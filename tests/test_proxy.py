@@ -236,6 +236,21 @@ class ProxyTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_http_proxy_ignores_client_reset_and_serves_next_request(self):
+        policy = ProxyPolicy([], default_allow=False)
+        server, _ = start_http_proxy(policy)
+        proxy_port = server.server_port
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"CONNECT example.com:443 HTTP/1.1\r\n")
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+                response = client.recv(4096)
+                self.assertIn(b"403", response)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_http_connect_relays_matching_host(self):
         upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         upstream.bind(("127.0.0.1", 0))
