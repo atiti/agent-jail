@@ -128,6 +128,12 @@ def normalize(argv):
     return {"tool": tool, "action": action or "exec", "target": target, "flags": flags, "force": force}
 
 
+def _is_agent_tool(tool):
+    base = os.path.basename(tool or "")
+    stem = base.split(".", 1)[0]
+    return base in AGENT_TOOLS or stem in AGENT_TOOLS
+
+
 def _safe_cleanup_target(target, cwd):
     if not cwd or not target:
         return False
@@ -378,7 +384,7 @@ def classify(intent, argv, delegates=None, context=None):
             return {"risk": "low", "reason": "read-only sort", "category": "read-only"}
     if tool in {"chmod", "chown"} or raw.startswith("rm -rf"):
         return {"risk": "high", "reason": "destructive mutation", "category": "destructive"}
-    if tool in AGENT_TOOLS and "--dangerously-bypass-approvals-and-sandbox" in argv[1:]:
+    if _is_agent_tool(tool) and "--dangerously-bypass-approvals-and-sandbox" in argv[1:]:
         return {
             "risk": "low",
             "reason": "agent launch under agent-jail outer control",
