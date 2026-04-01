@@ -1,8 +1,10 @@
 import http.client
 import http.server
+import ipaddress
 import select
 import socket
 import socketserver
+import struct
 import threading
 import urllib.parse
 
@@ -13,13 +15,28 @@ class ProxyPolicy:
         self.default_allow = default_allow
 
     def decide(self, method, host, port, scheme="tcp"):
+        host = (host or "").lower()
+        scheme = (scheme or "tcp").lower()
         for rule in self.rules:
-            if rule.get("host") == host and rule.get("port") in (None, port):
-                return {"decision": "allow" if rule.get("allow", False) else "deny", "reason": "matched-rule"}
+            rule_host = (rule.get("host") or "").lower()
+            rule_port = rule.get("port")
+            rule_scheme = (rule.get("scheme") or "").lower()
+            if rule_host != host:
+                continue
+            if rule_port not in (None, port):
+                continue
+            if rule_scheme and rule_scheme != scheme:
+                continue
+            return {"decision": "allow" if rule.get("allow", False) else "deny", "reason": "matched-rule"}
         return {"decision": "allow" if self.default_allow else "deny", "reason": "default-policy", "scheme": scheme}
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
@@ -37,6 +54,29 @@ def _relay(left, right):
             (right if src is left else left).sendall(data)
 
 
+def _recv_exact(stream, size):
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = stream.recv(remaining)
+        if not chunk:
+            raise ConnectionError("unexpected EOF")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _pack_address(host, port):
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        encoded = host.encode("idna")
+        return b"\x03" + bytes([len(encoded)]) + encoded + struct.pack("!H", port)
+    if ip.version == 4:
+        return b"\x01" + ip.packed + struct.pack("!H", port)
+    return b"\x04" + ip.packed + struct.pack("!H", port)
+
+
 def make_proxy_server(host, port, policy):
     class Handler(http.server.BaseHTTPRequestHandler):
         def _decision(self, method, host_name, port_num, scheme="tcp"):
@@ -47,8 +87,8 @@ def make_proxy_server(host, port, policy):
             return verdict
 
         def do_CONNECT(self):
-            host_name, _, port = self.path.partition(":")
-            port_num = int(port or "443")
+            host_name, _, port_text = self.path.partition(":")
+            port_num = int(port_text or "443")
             if not self._decision("CONNECT", host_name, port_num):
                 return
             upstream = socket.create_connection((host_name, port_num), timeout=10)
@@ -101,8 +141,67 @@ def make_proxy_server(host, port, policy):
     return ThreadingHTTPServer((host, port), Handler)
 
 
-def start_proxy(policy, host="127.0.0.1", port=0):
-    server = make_proxy_server(host, port, policy)
+def make_socks_proxy_server(host, port, policy):
+    class Handler(socketserver.BaseRequestHandler):
+        def handle(self):
+            request = self.request
+            try:
+                version, methods_count = _recv_exact(request, 2)
+                if version != 5:
+                    return
+                methods = _recv_exact(request, methods_count)
+                if 0 not in methods:
+                    request.sendall(b"\x05\xff")
+                    return
+                request.sendall(b"\x05\x00")
+                header = _recv_exact(request, 4)
+                version, command, _reserved, atyp = header
+                if version != 5:
+                    return
+                if atyp == 1:
+                    host_name = socket.inet_ntoa(_recv_exact(request, 4))
+                elif atyp == 3:
+                    size = _recv_exact(request, 1)[0]
+                    host_name = _recv_exact(request, size).decode("idna")
+                elif atyp == 4:
+                    host_name = socket.inet_ntop(socket.AF_INET6, _recv_exact(request, 16))
+                else:
+                    request.sendall(b"\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00")
+                    return
+                port_num = struct.unpack("!H", _recv_exact(request, 2))[0]
+                if command != 1:
+                    request.sendall(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
+                    return
+                verdict = policy.decide("CONNECT", host_name, port_num, scheme="tcp")
+                if verdict["decision"] == "deny":
+                    request.sendall(b"\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00")
+                    return
+                upstream = socket.create_connection((host_name, port_num), timeout=10)
+                try:
+                    bound_host, bound_port = upstream.getsockname()[:2]
+                    request.sendall(b"\x05\x00\x00" + _pack_address(bound_host, bound_port))
+                    _relay(request, upstream)
+                finally:
+                    upstream.close()
+            except (ConnectionError, OSError, ValueError):
+                return
+
+    return ThreadingTCPServer((host, port), Handler)
+
+
+def _start_server(server):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread
+
+
+def start_http_proxy(policy, host="127.0.0.1", port=0):
+    return _start_server(make_proxy_server(host, port, policy))
+
+
+def start_socks_proxy(policy, host="127.0.0.1", port=0):
+    return _start_server(make_socks_proxy_server(host, port, policy))
+
+
+def start_proxy(policy, host="127.0.0.1", port=0):
+    return start_http_proxy(policy, host=host, port=port)

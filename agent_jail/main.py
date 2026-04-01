@@ -16,7 +16,7 @@ from agent_jail.capabilities import resolve_session_capabilities
 from agent_jail.config import load_config, save_config
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
-from agent_jail.proxy import ProxyPolicy, start_proxy
+from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
 from agent_jail.rule_suggestions import apply_suggestions, build_rule_suggestions
 from agent_jail.wrappers import write_wrappers
 
@@ -183,6 +183,17 @@ def parse_args(argv=None):
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-delegate", action="append", default=[])
     config_set.add_argument("--project-mode", choices=["cwd"], default=None)
+    network = sub.add_parser("network")
+    network_sub = network.add_subparsers(dest="network_command", required=True)
+    for name in ("allow", "deny", "test"):
+        command = network_sub.add_parser(name)
+        command.add_argument("host")
+        command.add_argument("--port", type=int)
+        command.add_argument("--scheme", default="tcp")
+        if name == "test":
+            command.add_argument("--default-deny", action="store_true")
+    network_list = network_sub.add_parser("list")
+    network_list.add_argument("--json", action="store_true")
     return parser, parser.parse_args(argv)
 
 
@@ -474,6 +485,45 @@ def handle_config(args):
     return 0
 
 
+def handle_network(args):
+    home = ensure_home()
+    store = PolicyStore(os.path.join(home, "policy.json"))
+    if args.network_command == "list":
+        rules = [rule for rule in store.rules if rule.get("kind") == "network"]
+        if args.json:
+            print(json.dumps(rules, indent=2, sort_keys=True))
+            return 0
+        if not rules:
+            print("network rules: none")
+            return 0
+        print(f"network rules: {len(rules)}")
+        for rule in rules:
+            port = rule.get("port")
+            scheme = rule.get("scheme") or "any"
+            decision = "allow" if rule.get("allow") else "deny"
+            suffix = f":{port}" if port is not None else ""
+            print(f"- {decision} {rule.get('host')}{suffix} [{scheme}]")
+        return 0
+    if args.network_command == "test":
+        policy = ProxyPolicy(store.rules, default_allow=not args.default_deny)
+        verdict = policy.decide("CONNECT", args.host, args.port, scheme=args.scheme)
+        print(json.dumps({"host": args.host, "port": args.port, "scheme": args.scheme, **verdict}, sort_keys=True))
+        return 0
+    rule = {
+        "kind": "network",
+        "host": args.host,
+        "port": args.port,
+        "scheme": args.scheme,
+        "allow": args.network_command == "allow",
+    }
+    replaced = store.set_rule(rule)
+    decision = "allow" if rule["allow"] else "deny"
+    status = "updated" if replaced else "added"
+    port = f":{args.port}" if args.port is not None else ""
+    print(f"{status} {decision} {args.host}{port} [{args.scheme}]")
+    return 0
+
+
 def run(argv=None):
     parser, args = parse_args(argv)
     if args.command == "monitor":
@@ -484,6 +534,8 @@ def run(argv=None):
         return suggest_rules(args)
     if args.command == "config":
         return handle_config(args)
+    if args.command == "network":
+        return handle_network(args)
     if args.command != "run" or not args.target:
         parser.print_usage(sys.stderr)
         raise SystemExit(2)
@@ -595,12 +647,24 @@ def run(argv=None):
             env.setdefault(key, value)
         if kill_switch:
             env["AGENT_JAIL_KILL_SWITCH"] = kill_switch
-        proxy_server = None
+        http_proxy_server = None
+        socks_proxy_server = None
         if args.proxy:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
-            proxy_server, _ = start_proxy(policy)
-            proxy_url = f"http://127.0.0.1:{proxy_server.server_port}"
-            env.update({"HTTP_PROXY": proxy_url, "HTTPS_PROXY": proxy_url, "ALL_PROXY": proxy_url})
+            http_proxy_server, _ = start_http_proxy(policy)
+            socks_proxy_server, _ = start_socks_proxy(policy)
+            http_proxy_url = f"http://127.0.0.1:{http_proxy_server.server_port}"
+            socks_proxy_url = f"socks5://127.0.0.1:{socks_proxy_server.server_address[1]}"
+            env.update(
+                {
+                    "HTTP_PROXY": http_proxy_url,
+                    "HTTPS_PROXY": http_proxy_url,
+                    "ALL_PROXY": socks_proxy_url,
+                    "SOCKS_PROXY": socks_proxy_url,
+                    "AGENT_JAIL_HTTP_PROXY": http_proxy_url,
+                    "AGENT_JAIL_SOCKS_PROXY": socks_proxy_url,
+                }
+            )
         backend = choose_backend(preferred=env.get("AGENT_JAIL_BACKEND"))
         try:
             target_argv = resolve_target(args.target, env)
@@ -625,9 +689,12 @@ def run(argv=None):
                     return 125
                 time.sleep(0.1)
         finally:
-            if proxy_server:
-                proxy_server.shutdown()
-                proxy_server.server_close()
+            if http_proxy_server:
+                http_proxy_server.shutdown()
+                http_proxy_server.server_close()
+            if socks_proxy_server:
+                socks_proxy_server.shutdown()
+                socks_proxy_server.server_close()
             broker.close()
             event_sink.close()
             write_runtime_state(

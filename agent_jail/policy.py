@@ -101,6 +101,37 @@ class PolicyStore:
         self.save()
         return True
 
+    def set_rule(self, rule):
+        kind = rule.get("kind", "exec")
+        replaced = False
+        retained = []
+        for existing in self.rules:
+            if existing.get("kind", "exec") != kind:
+                retained.append(existing)
+                continue
+            if kind == "network":
+                same = (
+                    existing.get("host") == rule.get("host")
+                    and existing.get("port") == rule.get("port")
+                    and existing.get("scheme") == rule.get("scheme")
+                )
+            elif kind == "capability":
+                same = existing.get("name") == rule.get("name")
+            else:
+                same = (
+                    existing.get("tool") == rule.get("tool")
+                    and existing.get("action") == rule.get("action")
+                    and (existing.get("constraints") or {}) == (rule.get("constraints") or {})
+                )
+            if same:
+                replaced = True
+                continue
+            retained.append(existing)
+        retained.append(rule)
+        self.data["rules"] = retained
+        self.save()
+        return replaced
+
     def replace_suggestions(self, suggestions):
         self.data["suggestions"] = list(suggestions)
         self.save()

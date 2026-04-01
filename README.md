@@ -197,6 +197,15 @@ python3 agent-jail run --proxy codex --yolo
 python3 agent-jail run --proxy --deny-network-by-default claude
 ```
 
+Manage network rules from the CLI:
+
+```bash
+python3 agent-jail network allow api.openai.com --port 443 --scheme tcp
+python3 agent-jail network deny example.com --port 443 --scheme tcp
+python3 agent-jail network list
+python3 agent-jail network test api.openai.com --port 443 --scheme tcp --default-deny
+```
+
 Run a quick smoke command:
 
 ```bash
@@ -362,12 +371,46 @@ The proxy is explicit-proxy based. When enabled, `agent-jail` sets:
 - `HTTP_PROXY`
 - `HTTPS_PROXY`
 - `ALL_PROXY`
+- `SOCKS_PROXY`
 
-The proxy can allow or deny requests by host and port using network rules from the same policy file.
+`HTTP_PROXY` and `HTTPS_PROXY` point at the built-in HTTP proxy. `ALL_PROXY` and `SOCKS_PROXY` point at a built-in SOCKS5 proxy.
+
+Both proxies use the same `network` rules from `policy.json`. Rules support:
+
+- `host`
+- optional `port`
+- optional `scheme`
+
+Example rule:
+
+```json
+{
+  "kind": "network",
+  "host": "api.openai.com",
+  "port": 443,
+  "scheme": "tcp",
+  "allow": true
+}
+```
 
 Limit:
 
 - clients that ignore proxy environment variables are not covered
+- current SOCKS support is `CONNECT`/TCP only
+- UDP is not proxied yet
+
+Quick smoke test:
+
+```bash
+AGENT_JAIL_HOME=/tmp/agent-jail-proxy-test \
+python3 agent-jail network allow example.com --port 443 --scheme tcp
+
+AGENT_JAIL_HOME=/tmp/agent-jail-proxy-test \
+python3 agent-jail run --proxy --deny-network-by-default \
+python3 -c "import urllib.request; print(urllib.request.urlopen('https://example.com', timeout=5).status)"
+```
+
+For SOCKS-aware clients, use `ALL_PROXY`/`SOCKS_PROXY` inside the session. `agent-jail` exports both automatically when `--proxy` is enabled.
 
 ## Repository health
 
@@ -384,6 +427,7 @@ This project is usable, but still evolving. Expect policy and test coverage to i
 Recommended reading:
 
 - [docs/manual-policy-suite.md](/Users/attilasukosd/build/agent-jail/docs/manual-policy-suite.md)
+- [docs/network-proxy.md](/Users/attilasukosd/build/agent-jail/docs/network-proxy.md)
 - [2026-03-31-agent-jail-design.md](/Users/attilasukosd/build/agent-jail/docs/superpowers/specs/2026-03-31-agent-jail-design.md)
 - [2026-03-31-agent-jail-lifestyle-design.md](/Users/attilasukosd/build/agent-jail/docs/superpowers/specs/2026-03-31-agent-jail-lifestyle-design.md)
 

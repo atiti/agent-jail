@@ -178,6 +178,44 @@ class CLITests(unittest.TestCase):
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
 
+    def test_network_allow_list_test_and_deny_manage_policy_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"AGENT_JAIL_HOME": tmp}
+            allow = self.run_cli("network", "allow", "example.com", "--port", "443", "--scheme", "tcp", env=env)
+            self.assertEqual(allow.returncode, 0, allow.stderr)
+            listed = self.run_cli("network", "list", env=env)
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertIn("example.com", listed.stdout)
+            self.assertIn("443", listed.stdout)
+            self.assertIn("tcp", listed.stdout)
+            tested = self.run_cli("network", "test", "example.com", "--port", "443", "--scheme", "tcp", env=env)
+            self.assertEqual(tested.returncode, 0, tested.stderr)
+            self.assertIn("allow", tested.stdout)
+            deny = self.run_cli("network", "deny", "example.com", "--port", "443", "--scheme", "tcp", env=env)
+            self.assertEqual(deny.returncode, 0, deny.stderr)
+            tested_again = self.run_cli("network", "test", "example.com", "--port", "443", "--scheme", "tcp", env=env)
+            self.assertEqual(tested_again.returncode, 0, tested_again.stderr)
+            self.assertIn("deny", tested_again.stdout)
+
+    def test_run_with_proxy_sets_http_and_socks_proxy_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["ALL_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertEqual(values["SOCKS_PROXY"], values["ALL_PROXY"])
+
     def test_mounts_codex_and_claude_home_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             real_home = os.path.join(tmp, "real-home")
