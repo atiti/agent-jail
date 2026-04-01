@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 
 from agent_jail.broker import broker_request
 
@@ -71,5 +72,12 @@ def dispatch_main():
         print(f"agent-jail denied: {reply['reason']}", file=sys.stderr)
         raise SystemExit(126)
     real_binary = resolve_real_binary(command)
+    session_proxy_env = os.environ.get("AGENT_JAIL_SESSION_PROXY_ENV")
+    if session_proxy_env:
+        # Allow the parent agent to stay unproxied while wrapped subprocesses
+        # inherit the session-managed proxy/cert environment.
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+            os.environ.pop(key, None)
+        os.environ.update(json.loads(session_proxy_env))
     exec_argv = reply.get("rewrite") or full_argv
     os.execv(real_binary, exec_argv)

@@ -196,6 +196,7 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run")
     run.add_argument("--proxy", action="store_true")
+    run.add_argument("--proxy-commands-only", action="store_true")
     run.add_argument(
         "--proxy-mode",
         choices=["http", "socks", "hybrid", "codex-http", "codex-http-native"],
@@ -710,6 +711,7 @@ def run(argv=None):
             env["AGENT_JAIL_KILL_SWITCH"] = kill_switch
         http_proxy_server = None
         socks_proxy_server = None
+        session_proxy_env = {}
         if args.proxy:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
             http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
@@ -733,12 +735,30 @@ def run(argv=None):
                 env["ALL_PROXY"] = socks_proxy_url
             else:
                 env.pop("ALL_PROXY", None)
+            session_proxy_env = {
+                key: env[key]
+                for key in (
+                    "HTTP_PROXY",
+                    "HTTPS_PROXY",
+                    "ALL_PROXY",
+                    "SOCKS_PROXY",
+                    "SSL_CERT_FILE",
+                    "SSL_CERT_DIR",
+                    "AGENT_JAIL_HTTP_PROXY",
+                    "AGENT_JAIL_SOCKS_PROXY",
+                )
+                if key in env
+            }
         backend = choose_backend(preferred=env.get("AGENT_JAIL_BACKEND"))
         try:
             target_argv = resolve_target(args.target, env)
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
+        if args.proxy and args.proxy_commands_only:
+            env["AGENT_JAIL_SESSION_PROXY_ENV"] = json.dumps(session_proxy_env, sort_keys=True)
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+                env.pop(key, None)
         apply_target_env_profile(env, target_argv, proxy_mode=args.proxy_mode if args.proxy else None)
         if args.print_launch_env:
             print(
@@ -762,6 +782,7 @@ def run(argv=None):
                                 "socks_proxy",
                                 "AGENT_JAIL_HTTP_PROXY",
                                 "AGENT_JAIL_SOCKS_PROXY",
+                                "AGENT_JAIL_SESSION_PROXY_ENV",
                             }
                         )
                         if key in env

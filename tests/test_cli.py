@@ -216,6 +216,34 @@ class CLITests(unittest.TestCase):
         self.assertIsNone(values["ALL_PROXY"])
         self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
 
+    def test_run_with_proxy_commands_only_keeps_parent_clean_and_proxies_wrapped_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                "--proxy-commands-only",
+                sys.executable,
+                "-c",
+                (
+                    "import json, os, subprocess; "
+                    "parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}; "
+                    "child=json.loads(subprocess.check_output(['python3','-c',"
+                    "\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\""
+                    "], text=True)); "
+                    "print(json.dumps({'parent': parent, 'child': child}, sort_keys=True))"
+                ),
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertEqual(values["parent"], {"ALL_PROXY": None, "HTTPS_PROXY": None, "HTTP_PROXY": None, "SOCKS_PROXY": None})
+        self.assertTrue(values["child"]["HTTP_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["child"]["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertIsNone(values["child"]["ALL_PROXY"])
+        self.assertTrue(values["child"]["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+
     def test_run_with_proxy_mode_http_sets_only_http_proxy_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
