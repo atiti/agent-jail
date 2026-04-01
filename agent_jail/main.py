@@ -445,6 +445,7 @@ def run(argv=None):
             store,
             capabilities=session["capabilities"],
             delegates=config.get("delegates", []),
+            secrets=config.get("secrets", {}),
             mounts=session["mounts"] + [{"path": tmp, "mode": "rw"}],
             deny_read_patterns=config.get("filesystem", {}).get("deny_read_patterns", []),
             event_sink=event_sink,

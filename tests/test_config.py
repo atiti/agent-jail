@@ -133,3 +133,30 @@ class ConfigTests(unittest.TestCase):
             config = load_config(config_path)
         self.assertEqual(config["delegates"][0]["set_env"]["AGE_KEY_FILE"], "~/keys.txt")
         self.assertEqual(config["delegates"][0]["set_env"]["COUNT"], "1")
+
+    def test_load_config_normalizes_secret_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "config.json")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "secrets": {
+                            "age_key_file": {
+                                "env": {"AGE_KEY_FILE": "~/keys.txt", "COUNT": 1},
+                            }
+                        },
+                        "delegates": [
+                            {
+                                "name": "ops",
+                                "allowed_secrets": ["age_key_file", "", 1],
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            config = load_config(config_path)
+        self.assertEqual(
+            config["secrets"]["age_key_file"]["env"],
+            {"AGE_KEY_FILE": "~/keys.txt", "COUNT": "1"},
+        )
+        self.assertEqual(config["delegates"][0]["allowed_secrets"], ["age_key_file"])

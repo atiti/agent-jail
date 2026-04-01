@@ -237,6 +237,33 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result["decision"], "deny")
         self.assertIn("outside allowed roots", result["reason"])
 
+    def test_secret_capability_denies_direct_python_env_access_with_delegate_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"}}},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "allowed_tools": ["python3"],
+                        "allowed_secrets": ["age_key_file"],
+                    }
+                ],
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["python3", "-c", "import os; print(os.environ['AGE_KEY_FILE'])"],
+                    "raw": "python3 -c \"import os; print(os.environ['AGE_KEY_FILE'])\"",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("secret capability required", result["reason"])
+        self.assertIn("agent-jail-cap delegate ops", result["reason"])
+
     def test_read_guard_denies_python_variable_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")

@@ -30,6 +30,23 @@ SCRIPT_EXTENSIONS = {
     "ruby": {".rb"},
     "perl": {".pl", ".pm"},
 }
+SECRET_ENV_REF_PATTERNS = {
+    "python": [
+        re.compile(r'os\.environ\[\s*["\']([A-Z][A-Z0-9_]*)["\']\s*\]'),
+        re.compile(r'os\.getenv\(\s*["\']([A-Z][A-Z0-9_]*)["\']'),
+        re.compile(r'os\.environ\.get\(\s*["\']([A-Z][A-Z0-9_]*)["\']'),
+    ],
+    "shell": [
+        re.compile(r"\$\{?([A-Z][A-Z0-9_]*)\}?"),
+    ],
+    "ruby": [
+        re.compile(r'ENV\[\s*["\']([A-Z][A-Z0-9_]*)["\']\s*\]'),
+        re.compile(r'ENV\.fetch\(\s*["\']([A-Z][A-Z0-9_]*)["\']'),
+    ],
+    "perl": [
+        re.compile(r'\$ENV\{\s*["\']?([A-Z][A-Z0-9_]*)["\']?\s*\}'),
+    ],
+}
 
 
 def _resolve_script_path(path, cwd):
@@ -312,6 +329,24 @@ def _heuristic_script_summary(source, language):
     return {"risk": "low", "category": "general", "template": f"{language} local script", "reason": f"{language} local script", "read_paths": read_paths}
 
 
+def _extract_secret_env_vars(source, language):
+    matches = set()
+    for pattern in SECRET_ENV_REF_PATTERNS.get(language, []):
+        matches.update(pattern.findall(source))
+    return sorted(matches)
+
+
+def _secret_capabilities_for_env_vars(secret_env_vars, configured_secrets):
+    if not secret_env_vars or not configured_secrets:
+        return []
+    capabilities = []
+    for name, item in (configured_secrets or {}).items():
+        env_map = item.get("env") if isinstance(item, dict) else {}
+        if any(env_name in env_map for env_name in secret_env_vars):
+            capabilities.append(name)
+    return sorted(set(capabilities))
+
+
 def _script_source_for_interpreter(tool, argv, cwd):
     tool_name = os.path.basename(tool)
     if tool_name.startswith("python"):
@@ -365,6 +400,7 @@ def analyze_invocation(argv, cwd=None):
             result = _analyze_python_source(source)
         except SyntaxError:
             result = {"risk": "medium", "category": "general", "template": "python script", "reason": "unparseable python script"}
+        result["secret_env_vars"] = _extract_secret_env_vars(source, language)
         return {"argv": effective, "language": language, "source_path": path, **result}
     if language == "shell" and source:
         try:
@@ -373,8 +409,21 @@ def analyze_invocation(argv, cwd=None):
         except ShellAnalysisError:
             result = {"risk": "medium", "category": "general", "template": "shell script", "reason": "unparseable shell script"}
             analysis = {"commands": []}
+        result["secret_env_vars"] = _extract_secret_env_vars(source, language)
         return {"argv": effective, "language": language, "source_path": path, "commands": analysis["commands"], **result}
     if language in {"ruby", "perl"} and source:
         result = _heuristic_script_summary(source, language)
+        result["secret_env_vars"] = _extract_secret_env_vars(source, language)
         return {"argv": effective, "language": language, "source_path": path, **result}
     return {"argv": effective}
+
+
+def detect_secret_capabilities(argv, cwd=None, configured_secrets=None):
+    analysis = analyze_invocation(argv, cwd)
+    env_vars = analysis.get("secret_env_vars", [])
+    capabilities = _secret_capabilities_for_env_vars(env_vars, configured_secrets or {})
+    return {
+        "analysis": analysis,
+        "secret_env_vars": env_vars,
+        "secret_capabilities": capabilities,
+    }

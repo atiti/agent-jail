@@ -147,24 +147,36 @@ Delegated commands run outside the sandbox with the host user's `HOME` and origi
 
 ```json
 {
+  "secrets": {
+    "age_key_file": {
+      "env": {
+        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
+      }
+    }
+  },
   "delegates": [
     {
       "name": "ops",
       "mode": "execute",
-      "allowed_tools": ["privateinfractl", "./scripts/unifi-api.sh"],
-      "auto_inventory_from_cwd": true,
-      "set_env": {
-        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
-      }
+      "allowed_tools": ["privateinfractl", "python3", "./scripts/unifi-api.sh"],
+      "allowed_secrets": ["age_key_file"],
+      "auto_inventory_from_cwd": true
     }
   ]
 }
 ```
 
+With that model:
+
+- direct sandboxed commands that reference `AGE_KEY_FILE` are denied with delegate guidance
+- delegated commands only receive the mapped secret env when they actually reference it
+- unrelated configured secrets are not injected into the delegate process
+
 That keeps the secret material outside the jail while still allowing mediated commands like:
 
 ```bash
 agent-jail-cap delegate ops privateinfractl status --service nas-unifi-controller
+agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
 agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
 ```
 

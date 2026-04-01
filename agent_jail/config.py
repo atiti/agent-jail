@@ -25,6 +25,18 @@ def _normalize_pattern_list(values):
     return normalized
 
 
+def _normalize_string_map(values):
+    if not isinstance(values, dict):
+        return {}
+    normalized = {}
+    for key, value in values.items():
+        name = str(key).strip()
+        if not name:
+            continue
+        normalized[name] = str(value)
+    return normalized
+
+
 def default_config_path():
     home = os.environ.get("AGENT_JAIL_HOME") or str(Path.home() / ".agent-jail")
     return os.path.join(home, "config.json")
@@ -62,10 +74,23 @@ def load_config(path=None):
         set_env = delegate.get("set_env")
         if not isinstance(set_env, dict):
             set_env = {}
-        delegate["set_env"] = {str(key): str(value) for key, value in set_env.items() if str(key).strip()}
+        delegate["set_env"] = _normalize_string_map(set_env)
+        allowed_secrets = delegate.get("allowed_secrets")
+        if not isinstance(allowed_secrets, list):
+            allowed_secrets = []
+        delegate["allowed_secrets"] = [str(item) for item in allowed_secrets if isinstance(item, str) and item.strip()]
         delegate["auto_inventory_from_cwd"] = bool(delegate.get("auto_inventory_from_cwd", False))
         normalized_delegates.append(delegate)
     data["delegates"] = normalized_delegates
+    secrets = data.get("secrets")
+    if not isinstance(secrets, dict):
+        secrets = {}
+    normalized_secrets = {}
+    for name, item in secrets.items():
+        if not isinstance(name, str) or not name.strip() or not isinstance(item, dict):
+            continue
+        normalized_secrets[name] = {"env": _normalize_string_map(item.get("env"))}
+    data["secrets"] = normalized_secrets
     filesystem = data.get("filesystem")
     if not isinstance(filesystem, dict):
         filesystem = {}

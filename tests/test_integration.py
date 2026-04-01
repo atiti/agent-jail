@@ -148,6 +148,55 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("agent-jail-cap delegate ops", proc.stderr)
 
+    def test_wrapper_denies_top_level_python_secret_env_access_with_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            wrapper_dir = os.path.join(tmp, "bin")
+            real_dir = os.path.join(tmp, "real")
+            os.mkdir(real_dir)
+            python_path = os.path.join(real_dir, "python3")
+            with open(python_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(python_path, 0o755)
+
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(
+                sock_path,
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"}}},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["python3"],
+                        "allowed_secrets": ["age_key_file"],
+                    }
+                ],
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+
+            write_wrappers(wrapper_dir, ["python3"])
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_SOCKET": sock_path,
+                    "AGENT_JAIL_ORIG_PATH": real_dir,
+                    "PATH": wrapper_dir,
+                    "PYTHONPATH": ROOT,
+                }
+            )
+            proc = subprocess.run(
+                ["python3", "-c", "import os; print(os.environ['AGE_KEY_FILE'])"],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("secret capability required", proc.stderr)
+        self.assertIn("agent-jail-cap delegate ops", proc.stderr)
+
     def test_wrapper_denies_remote_exec_shell(self):
         with tempfile.TemporaryDirectory() as tmp:
             sock_path = os.path.join(tmp, "broker.sock")

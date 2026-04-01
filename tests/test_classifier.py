@@ -10,8 +10,14 @@ class ClassifierTests(unittest.TestCase):
                 "name": "ops",
                 "executor": "/usr/local/bin/delegate-exec",
                 "allowed_tools": ["opsctl"],
+                "allowed_secrets": ["age_key_file"],
             }
         ]
+        self.secrets = {
+            "age_key_file": {
+                "env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"},
+            }
+        }
 
     def test_normalize_git_push(self):
         intent = normalize(["git", "push", "origin", "main"])
@@ -232,3 +238,19 @@ class ClassifierTests(unittest.TestCase):
         verdict = classify(intent, argv)
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "read-only")
+
+    def test_classify_python_secret_env_script_as_secret_capability(self):
+        argv = ["python3", "-c", "import os; print(os.environ['AGE_KEY_FILE'])"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, delegates=self.delegates, secrets=self.secrets)
+        self.assertEqual(verdict["risk"], "high")
+        self.assertEqual(verdict["category"], "secret-capability")
+        self.assertIn("agent-jail-cap delegate ops", verdict["reason"])
+        self.assertIn("age_key_file", verdict["reason"])
+
+    def test_classify_shell_secret_env_script_as_secret_capability(self):
+        argv = ["bash", "-c", "echo $AGE_KEY_FILE"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, delegates=self.delegates, secrets=self.secrets)
+        self.assertEqual(verdict["risk"], "high")
+        self.assertEqual(verdict["category"], "secret-capability")

@@ -85,6 +85,32 @@ class CapabilityProxyTests(unittest.TestCase):
                 )
         self.assertEqual(mocked_run.call_args.kwargs["env"]["SECRET_KEY_FILE"], "/Users/example/keys.txt")
 
+    def test_delegate_execute_injects_only_required_secret_env(self):
+        with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
+            mocked_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            with mock.patch.dict(os.environ, {"AGENT_JAIL_HOST_HOME": "/Users/example"}, clear=False):
+                run_delegate_proxy(
+                    {"delegates": ["ops"]},
+                    {
+                        "ops": {
+                            "name": "ops",
+                            "executor": "/usr/local/bin/delegate-exec",
+                            "allowed_tools": ["python3"],
+                            "allowed_secrets": ["age_key_file"],
+                            "configured_secrets": {
+                                "age_key_file": {"env": {"AGE_KEY_FILE": "~/keys.txt"}},
+                                "other_secret": {"env": {"OTHER_SECRET": "~/other.txt"}},
+                            },
+                            "mode": "execute",
+                        }
+                    },
+                    "ops",
+                    ["python3", "-c", "import os; print(os.environ['AGE_KEY_FILE'])"],
+                )
+        env = mocked_run.call_args.kwargs["env"]
+        self.assertEqual(env["AGE_KEY_FILE"], "/Users/example/keys.txt")
+        self.assertNotIn("OTHER_SECRET", env)
+
     def test_delegate_auto_inventory_defaults_from_cwd(self):
         with mock.patch("agent_jail.delegate_proxy.os.path.isdir", return_value=True):
             result = run_delegate_proxy(

@@ -6,37 +6,51 @@
 
 1. Keep the session sandboxed.
 2. Route the sensitive command through `agent-jail-cap delegate <name> ...`.
-3. Let the delegate execute outside the sandbox with host `HOME`/`PATH`.
-4. Inject only the explicit environment values the delegated tool needs.
+3. Define secret capabilities in local config instead of broad secret-path mounts.
+4. Let the delegate execute outside the sandbox with host `HOME`/`PATH`.
+5. Inject only the configured secret env that the delegated command actually references.
 
 ## Example
 
 ```json
 {
+  "secrets": {
+    "age_key_file": {
+      "env": {
+        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
+      }
+    }
+  },
   "delegates": [
     {
       "name": "ops",
       "mode": "execute",
-      "allowed_tools": ["privateinfractl", "./scripts/unifi-api.sh"],
-      "auto_inventory_from_cwd": true,
-      "set_env": {
-        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
-      }
+      "allowed_tools": ["privateinfractl", "python3", "./scripts/unifi-api.sh"],
+      "allowed_secrets": ["age_key_file"],
+      "auto_inventory_from_cwd": true
     }
   ]
 }
 ```
 
-With that config, these commands stay mediated even though they rely on host-side secrets:
+With that config:
+
+- `python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` is denied in the sandbox with a hint to rerun through `agent-jail-cap delegate ops ...`
+- `agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` receives `AGE_KEY_FILE` from the configured `age_key_file` secret capability
+- unrelated configured secrets are not injected unless the delegated command references their env vars
+
+These commands stay mediated even though they rely on host-side secrets:
 
 ```bash
 agent-jail-cap delegate ops privateinfractl status --service nas-unifi-controller
+agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
 agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
 ```
 
 ## Notes
 
-- `set_env` is local configuration and should not be committed to a public repo.
+- `secrets` and any secret-bearing env mappings are local configuration and should not be committed to a public repo.
+- `allowed_secrets` scopes which secret capabilities a delegate may receive.
 - Delegates restore the host user's `HOME` and original `PATH` automatically.
 - If `auto_inventory_from_cwd` is enabled and the current working directory contains `inventory/`, delegated `privateinfractl` and `marksterctl` commands inherit `--ops-root <cwd> --inventory-dir <cwd>/inventory`.
 - The secret files remain unreadable from inside the sandboxed session itself.

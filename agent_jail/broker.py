@@ -11,7 +11,7 @@ from agent_jail.browser_proxy import run_browser_proxy
 from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
 from agent_jail.events import render_event
 from agent_jail.rule_jit import JITRuleEngine
-from agent_jail.script_analysis import analyze_invocation
+from agent_jail.script_analysis import analyze_invocation, detect_secret_capabilities
 from agent_jail.shell_analysis import ShellAnalysisError, analyze_shell_script
 from agent_jail.skills_proxy import run_skill_proxy
 
@@ -30,6 +30,7 @@ SENSITIVE_DENY_CATEGORIES = {
     "sensitive-delegate",
     "sensitive-browser",
     "remote-exec",
+    "secret-capability",
 }
 SAFE_CLEANUP_NAMES = {
     "__pycache__",
@@ -401,7 +402,38 @@ def _read_scope_violation(intent, argv, context, analysis=None):
     return None
 
 
-def classify(intent, argv, delegates=None, context=None):
+def _secret_env_capability_violation(argv, context, analysis, delegates, secrets):
+    env_vars = (analysis or {}).get("secret_env_vars", [])
+    if env_vars:
+        capabilities = []
+        for name, item in (secrets or {}).items():
+            env_map = item.get("env") if isinstance(item, dict) else {}
+            if any(env_name in env_map for env_name in env_vars):
+                capabilities.append(name)
+        detected = {"secret_capabilities": sorted(set(capabilities))}
+    else:
+        detected = detect_secret_capabilities(argv, (context or {}).get("cwd"), secrets or {})
+    capabilities = detected.get("secret_capabilities", [])
+    if not capabilities:
+        return None
+    for delegate in delegates or ():
+        allowed = set(delegate.get("allowed_secrets") or [])
+        if allowed and set(capabilities).issubset(allowed):
+            names = ", ".join(capabilities)
+            return {
+                "risk": "high",
+                "reason": f"secret capability required: {names}; use agent-jail-cap delegate {delegate.get('name')} {' '.join(argv)}",
+                "category": "secret-capability",
+            }
+    names = ", ".join(capabilities)
+    return {
+        "risk": "critical",
+        "reason": f"secret capability required but no configured delegate can provide it: {names}",
+        "category": "secret-capability",
+    }
+
+
+def classify(intent, argv, delegates=None, context=None, secrets=None):
     raw = " ".join(argv)
     tool = intent["tool"]
     action = intent["action"]
@@ -454,17 +486,30 @@ def classify(intent, argv, delegates=None, context=None):
             tools = [os.path.basename(command[0]) for command in pipeline if command]
             if any(name in {"curl", "wget"} for name in tools) and any(name in {"bash", "sh", "zsh"} for name in tools):
                 return {"risk": "critical", "reason": "remote shell pipeline", "category": "remote-exec"}
+        secret_detection = detect_secret_capabilities(argv, (context or {}).get("cwd"), secrets or {})
+        secret_verdict = _secret_env_capability_violation(
+            argv,
+            context or {},
+            {"secret_env_vars": secret_detection.get("secret_env_vars", [])},
+            delegates,
+            secrets,
+        )
+        if secret_verdict is not None:
+            return secret_verdict
         highest = None
         risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
         for command in analysis["commands"]:
             nested_intent = normalize(command)
-            verdict = classify(nested_intent, command, delegates=delegates)
+            verdict = classify(nested_intent, command, delegates=delegates, secrets=secrets)
             if verdict["category"] in SENSITIVE_DENY_CATEGORIES:
                 return verdict
             if highest is None or risk_rank[verdict["risk"]] > risk_rank[highest["risk"]]:
                 highest = verdict
         if highest is not None:
             return highest
+    secret_verdict = _secret_env_capability_violation(argv, context or {}, None, delegates, secrets)
+    if secret_verdict is not None:
+        return secret_verdict
     cleanup_verdict = _classify_safe_cleanup(intent, argv, context or {})
     if cleanup_verdict is not None:
         return cleanup_verdict
@@ -536,6 +581,7 @@ class BrokerServer:
         log_stderr=False,
         llm_policy=None,
         jit_engine=None,
+        secrets=None,
     ):
         self.path = path
         self.policy_store = policy_store
@@ -547,6 +593,7 @@ class BrokerServer:
         self.event_sink = event_sink
         self.log_stderr = log_stderr
         self.jit_engine = jit_engine or JITRuleEngine(llm_policy or {})
+        self.secrets = secrets or {}
 
     def serve_forever(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -602,6 +649,20 @@ class BrokerServer:
                 reason=read_guard.get("reason"),
             )
             return {"decision": "deny", "reason": read_guard["reason"]}
+        secret_guard = _secret_env_capability_violation(effective_argv, context, analysis, self.delegates.values(), self.secrets)
+        if secret_guard:
+            self._log(
+                "DENY",
+                raw,
+                secret_guard.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, secret_guard),
+                risk=secret_guard["risk"],
+                reason=secret_guard.get("reason"),
+            )
+            return {"decision": "deny", "reason": secret_guard["reason"]}
         matched = self.policy_store.match(intent)
         if matched:
             decision = "allow" if matched["allow"] else "deny"
@@ -633,7 +694,7 @@ class BrokerServer:
                 "category": analysis.get("category", "general"),
             }
         if verdict is None:
-            verdict = classify(intent, effective_argv, delegates=self.delegates.values(), context=context)
+            verdict = classify(intent, effective_argv, delegates=self.delegates.values(), context=context, secrets=self.secrets)
         risk = verdict["risk"]
         if risk == "critical" or verdict.get("category") in SENSITIVE_DENY_CATEGORIES:
             self._log(
@@ -791,6 +852,8 @@ class BrokerServer:
             payload = request.get("payload", {})
             delegate_name = payload.get("name", "")
             delegate = _with_delegate_context(self.delegates.get(delegate_name), payload)
+            if delegate:
+                delegate["configured_secrets"] = self.secrets
             if delegate and delegate.get("mode") == "execute" and wfile is not None:
                 self._log("ALLOW", f"capability {name}", "capability", kind="capability", capability=name)
                 self._write_frame(wfile, {"decision": "allow", "reason": "capability allowed", "stream": True})

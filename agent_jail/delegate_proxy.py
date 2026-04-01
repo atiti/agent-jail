@@ -2,6 +2,8 @@ import os
 import subprocess
 import threading
 
+from agent_jail.script_analysis import detect_secret_capabilities
+
 
 def _expand_delegate_env_value(value, env):
     if not isinstance(value, str):
@@ -31,6 +33,21 @@ def _delegate_env(delegate):
             env.pop(key, None)
     for key, value in (delegate.get("set_env") or {}).items():
         if isinstance(key, str) and key:
+            env[key] = _expand_delegate_env_value(value, env)
+    return env
+
+
+def _inject_required_secret_env(env, delegate, command):
+    allowed = set(delegate.get("allowed_secrets") or [])
+    configured = delegate.get("configured_secrets") or {}
+    if not allowed or not configured:
+        return env
+    detected = detect_secret_capabilities(command, delegate.get("_cwd"), configured)
+    for capability in detected.get("secret_capabilities", []):
+        if capability not in allowed:
+            continue
+        env_map = (configured.get(capability) or {}).get("env") or {}
+        for key, value in env_map.items():
             env[key] = _expand_delegate_env_value(value, env)
     return env
 
@@ -85,6 +102,7 @@ def run_delegate_proxy(capabilities, delegates, name, command):
             raise PermissionError(f"delegate {name} does not allow tool {tool}")
     delegated = _build_delegate_command(delegate, command)
     env = _delegate_env(delegate)
+    env = _inject_required_secret_env(env, delegate, command)
     if delegate.get("mode") == "execute":
         proc = subprocess.run(delegated, text=True, capture_output=True, env=env)
         return {
@@ -113,6 +131,7 @@ def stream_delegate_proxy(capabilities, delegates, name, command, write_frame):
             raise PermissionError(f"delegate {name} does not allow tool {tool}")
     delegated = _build_delegate_command(delegate, command)
     env = _delegate_env(delegate)
+    env = _inject_required_secret_env(env, delegate, command)
     header = f"[delegate:{name}] {' '.join(delegated)}\n"
     write_frame({"type": "header", "stream": "stderr", "text": header})
     proc = subprocess.Popen(
