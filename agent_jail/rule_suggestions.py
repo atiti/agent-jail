@@ -223,6 +223,22 @@ def validate_suggestion(proposal, llm_policy):
     return validated, auto_promote
 
 
+def _already_allowed(policy_store, rule):
+    kind = rule.get("kind", "exec")
+    if kind == "capability":
+        subject = {"name": rule.get("name")}
+    elif kind == "network":
+        subject = {"host": rule.get("host"), "port": rule.get("port")}
+    else:
+        subject = {
+            "tool": rule.get("tool"),
+            "action": rule.get("action"),
+        }
+        subject.update(rule.get("constraints") or {})
+    match = policy_store.match(subject, kind=kind)
+    return bool(match and match.get("allow"))
+
+
 def build_rule_suggestions(policy_store, config, event_paths=None, limit=None):
     llm_policy = config.get("llm_policy", {})
     home = os.environ.get("AGENT_JAIL_HOME") or os.path.join(os.path.expanduser("~"), ".agent-jail")
@@ -242,6 +258,8 @@ def build_rule_suggestions(policy_store, config, event_paths=None, limit=None):
         if result is None:
             continue
         rule, auto_promote = result
+        if _already_allowed(policy_store, rule):
+            continue
         validated.append({"rule": rule, "auto_promote": auto_promote})
     return {"events": events, "clusters": clusters, "suggestions": validated}
 

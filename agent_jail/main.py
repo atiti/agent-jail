@@ -163,6 +163,7 @@ def parse_args(argv=None):
     suggest = sub.add_parser("suggest-rules")
     suggest.add_argument("--json", action="store_true")
     suggest.add_argument("--apply-low-risk", action="store_true")
+    suggest.add_argument("--interactive", action="store_true")
     suggest.add_argument("--limit", type=int, default=500)
     suggest.add_argument("--log", action="append", default=[])
     review = sub.add_parser("review")
@@ -282,6 +283,9 @@ def suggest_rules(args):
     applied = []
     if args.apply_low_risk:
         applied = apply_suggestions(store, result["suggestions"], auto_only=True)
+    if args.interactive and args.json:
+        print("agent-jail suggest-rules: --interactive cannot be combined with --json", file=sys.stderr)
+        return 2
     output = {
         "clusters": result["clusters"],
         "suggestions": result["suggestions"],
@@ -290,15 +294,110 @@ def suggest_rules(args):
     if args.json:
         print(json.dumps(output, indent=2, sort_keys=True))
     else:
-        print(f"clusters: {len(result['clusters'])}")
-        print(f"suggestions: {len(result['suggestions'])}")
-        print(f"applied: {len(applied)}")
-        for item in result["suggestions"]:
-            rule = item["rule"]
-            template = rule.get("metadata", {}).get("template", "")
-            state = "auto" if item.get("auto_promote") else "suggested"
-            print(f"- [{state}] {template} -> allow {rule['tool']} {rule['action']}")
+        print(_format_suggestion_report(result["clusters"], result["suggestions"], applied))
+        if args.interactive:
+            review_result = _review_suggestions_interactively(store, result["suggestions"])
+            print(_format_interactive_summary(review_result))
     return 0
+
+
+def _supports_color(stream):
+    return bool(getattr(stream, "isatty", lambda: False)()) and not os.environ.get("NO_COLOR")
+
+
+def _color(text, code, stream=sys.stdout):
+    if not _supports_color(stream):
+        return text
+    return f"{code}{text}\033[0m"
+
+
+def _format_suggestion_line(index, item, stream=sys.stdout):
+    rule = item["rule"]
+    meta = rule.get("metadata", {})
+    template = meta.get("template", "")
+    source = meta.get("source", "unknown")
+    observations = meta.get("observations", 0)
+    confidence = float(meta.get("confidence", 0.0))
+    status = "AUTO" if item.get("auto_promote") else "REVIEW"
+    status_color = "\033[32m" if item.get("auto_promote") else "\033[33m"
+    status_text = _color(status, status_color, stream=stream)
+    return (
+        f"{index}. [{status_text}] {template} -> allow {rule['tool']} {rule['action']} "
+        f"(seen {observations}x, confidence {confidence:.2f}, source {source})"
+    )
+
+
+def _format_suggestion_report(clusters, suggestions, applied, stream=sys.stdout):
+    lines = [
+        _color("Suggestion Summary", "\033[1m", stream=stream),
+        f"clusters: {len(clusters)}",
+        f"suggestions: {len(suggestions)}",
+        f"applied: {len(applied)}",
+    ]
+    auto = [item for item in suggestions if item.get("auto_promote")]
+    review = [item for item in suggestions if not item.get("auto_promote")]
+    sections = [
+        ("Auto-Applicable", auto),
+        ("Needs Review", review),
+    ]
+    for title, items in sections:
+        lines.append("")
+        lines.append(_color(title, "\033[36m", stream=stream))
+        if not items:
+            lines.append("  none")
+            continue
+        for index, item in enumerate(items, start=1):
+            lines.append(f"  {_format_suggestion_line(index, item, stream=stream)}")
+    return "\n".join(lines)
+
+
+def _review_suggestions_interactively(store, suggestions, input_func=input, stream=sys.stdout):
+    approved = []
+    skipped = []
+    rejected = []
+    quit_early = False
+    for index, item in enumerate(suggestions, start=1):
+        prompt = (
+            f"{_format_suggestion_line(index, item, stream=stream)}\n"
+            "Approve [a], skip [s], reject [r], or quit [q]? "
+        )
+        while True:
+            choice = input_func(prompt).strip().lower()
+            if choice in {"a", "approve"}:
+                rule = dict(item["rule"])
+                metadata = dict(rule.get("metadata", {}))
+                metadata["promotion_state"] = "interactive-approved"
+                applied = store.add_rule({**rule, "metadata": metadata})
+                approved.append({**item, "applied": applied})
+                break
+            if choice in {"s", "skip", ""}:
+                skipped.append(item)
+                break
+            if choice in {"r", "reject"}:
+                rejected.append(item)
+                break
+            if choice in {"q", "quit"}:
+                skipped.append(item)
+                skipped.extend(suggestions[index:])
+                quit_early = True
+                break
+            print("Enter a, s, r, or q.", file=stream)
+        if quit_early:
+            break
+    store.replace_suggestions([item["rule"] for item in skipped])
+    return {
+        "approved": approved,
+        "skipped": skipped,
+        "rejected": rejected,
+        "quit_early": quit_early,
+    }
+
+
+def _format_interactive_summary(result):
+    return (
+        f"interactive summary: approved {len(result['approved'])}, "
+        f"skipped {len(result['skipped'])}, rejected {len(result['rejected'])}"
+    )
 
 
 def review_rule_from_pending(review):

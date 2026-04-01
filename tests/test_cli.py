@@ -8,6 +8,8 @@ import time
 import unittest
 from unittest import mock
 
+from agent_jail.main import _format_suggestion_report, _review_suggestions_interactively
+from agent_jail.policy import PolicyStore
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 CLI = os.path.join(ROOT, "agent-jail")
@@ -392,7 +394,74 @@ class CLITests(unittest.TestCase):
                 )
             proc = self.run_cli("suggest-rules", "--log", log_path, env={"AGENT_JAIL_HOME": tmp})
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Suggestion Summary", proc.stdout)
+        self.assertIn("Auto-Applicable", proc.stdout)
+        self.assertIn("ls *", proc.stdout)
         self.assertIn("suggestions: 1", proc.stdout)
+
+    def test_format_suggestion_report_groups_auto_and_review(self):
+        report = _format_suggestion_report(
+            [{"template": "ls *"}],
+            [
+                {
+                    "auto_promote": True,
+                    "rule": {
+                        "tool": "ls",
+                        "action": "exec",
+                        "metadata": {"template": "ls *", "observations": 3, "confidence": 0.9, "source": "deterministic"},
+                    },
+                },
+                {
+                    "auto_promote": False,
+                    "rule": {
+                        "tool": "cat",
+                        "action": "exec",
+                        "metadata": {"template": "cat *", "observations": 2, "confidence": 0.7, "source": "azure_openai"},
+                    },
+                },
+            ],
+            [],
+        )
+        self.assertIn("Auto-Applicable", report)
+        self.assertIn("Needs Review", report)
+        self.assertIn("ls *", report)
+        self.assertIn("cat *", report)
+
+    def test_review_suggestions_interactively_applies_and_stores_skips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            suggestions = [
+                {
+                    "auto_promote": True,
+                    "rule": {
+                        "kind": "exec",
+                        "tool": "ls",
+                        "action": "exec",
+                        "allow": True,
+                        "constraints": {},
+                        "metadata": {"template": "ls *", "observations": 3, "confidence": 0.9, "source": "deterministic"},
+                    },
+                },
+                {
+                    "auto_promote": False,
+                    "rule": {
+                        "kind": "exec",
+                        "tool": "cat",
+                        "action": "exec",
+                        "allow": True,
+                        "constraints": {},
+                        "metadata": {"template": "cat *", "observations": 2, "confidence": 0.7, "source": "deterministic"},
+                    },
+                },
+            ]
+            answers = iter(["a", "s"])
+            result = _review_suggestions_interactively(store, suggestions, input_func=lambda prompt: next(answers))
+            reloaded = PolicyStore(os.path.join(tmp, "policy.json"))
+        self.assertEqual(len(result["approved"]), 1)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertTrue(reloaded.match({"tool": "ls", "action": "exec"}))
+        self.assertEqual(len(reloaded.suggestions), 1)
+        self.assertEqual(reloaded.suggestions[0]["tool"], "cat")
 
     def test_review_list_reads_pending_reviews(self):
         with tempfile.TemporaryDirectory() as tmp:

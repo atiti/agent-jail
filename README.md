@@ -218,6 +218,7 @@ Generate policy suggestions from observed event history:
 ```bash
 python3 agent-jail suggest-rules
 python3 agent-jail suggest-rules --apply-low-risk
+python3 agent-jail suggest-rules --interactive
 python3 agent-jail suggest-rules --json
 ```
 
