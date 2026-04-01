@@ -197,7 +197,7 @@ class CLITests(unittest.TestCase):
             self.assertEqual(tested_again.returncode, 0, tested_again.stderr)
             self.assertIn("deny", tested_again.stdout)
 
-    def test_run_with_proxy_sets_http_and_socks_proxy_env(self):
+    def test_run_with_proxy_sets_hybrid_proxy_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env["AGENT_JAIL_HOME"] = tmp
@@ -214,6 +214,48 @@ class CLITests(unittest.TestCase):
         self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
         self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
         self.assertIsNone(values["ALL_PROXY"])
+        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+
+    def test_run_with_proxy_mode_http_sets_only_http_proxy_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                "--proxy-mode",
+                "http",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertIsNone(values["ALL_PROXY"])
+        self.assertIsNone(values["SOCKS_PROXY"])
+
+    def test_run_with_proxy_mode_socks_sets_socks_and_all_proxy_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                "--proxy-mode",
+                "socks",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertIsNone(values["HTTP_PROXY"])
+        self.assertIsNone(values["HTTPS_PROXY"])
+        self.assertTrue(values["ALL_PROXY"].startswith("socks5://127.0.0.1:"))
         self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
 
     def test_mounts_codex_and_claude_home_by_default(self):

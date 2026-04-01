@@ -5,6 +5,7 @@
 - Added a first-class `agent-jail network` CLI for `allow`, `deny`, `list`, and `test` operations against shared proxy policy rules.
 - Extended proxy support with a built-in SOCKS5 listener for TCP `CONNECT` traffic while keeping the existing HTTP/HTTPS proxy path.
 - Updated `agent-jail run --proxy` to export HTTP proxy variables plus `SOCKS_PROXY`, while avoiding a forced global `ALL_PROXY` override for better client compatibility.
+- Added `agent-jail run --proxy-mode {http,socks,hybrid}` so proxy env export can be tuned per client instead of forcing one strategy for every tool.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.
 - On macOS, limited proxy-session certificate overrides to `SSL_CERT_FILE` only, avoiding the OpenSSL cert-directory export that was breaking Codex proxy TLS while still providing a PEM bundle when native roots are unavailable.

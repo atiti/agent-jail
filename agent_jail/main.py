@@ -146,6 +146,7 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run")
     run.add_argument("--proxy", action="store_true")
+    run.add_argument("--proxy-mode", choices=["http", "socks", "hybrid"], default="hybrid")
     run.add_argument("--deny-network-by-default", action="store_true")
     run.add_argument("--project", action="append", default=[])
     run.add_argument("--allow-write", action="append", default=[])
@@ -659,16 +660,23 @@ def run(argv=None):
             socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink)
             http_proxy_url = f"http://127.0.0.1:{http_proxy_server.server_port}"
             socks_proxy_url = f"socks5://127.0.0.1:{socks_proxy_server.server_address[1]}"
-            env.update(
-                {
-                    "HTTP_PROXY": http_proxy_url,
-                    "HTTPS_PROXY": http_proxy_url,
-                    "SOCKS_PROXY": socks_proxy_url,
-                    "AGENT_JAIL_HTTP_PROXY": http_proxy_url,
-                    "AGENT_JAIL_SOCKS_PROXY": socks_proxy_url,
-                }
-            )
-            env.pop("ALL_PROXY", None)
+            env["AGENT_JAIL_HTTP_PROXY"] = http_proxy_url
+            env["AGENT_JAIL_SOCKS_PROXY"] = socks_proxy_url
+            proxy_mode = args.proxy_mode or "hybrid"
+            if proxy_mode in {"http", "hybrid"}:
+                env["HTTP_PROXY"] = http_proxy_url
+                env["HTTPS_PROXY"] = http_proxy_url
+            else:
+                env.pop("HTTP_PROXY", None)
+                env.pop("HTTPS_PROXY", None)
+            if proxy_mode in {"socks", "hybrid"}:
+                env["SOCKS_PROXY"] = socks_proxy_url
+            else:
+                env.pop("SOCKS_PROXY", None)
+            if proxy_mode == "socks":
+                env["ALL_PROXY"] = socks_proxy_url
+            else:
+                env.pop("ALL_PROXY", None)
         backend = choose_backend(preferred=env.get("AGENT_JAIL_BACKEND"))
         try:
             target_argv = resolve_target(args.target, env)
