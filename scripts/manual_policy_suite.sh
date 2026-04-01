@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export AZURE_OPENAI_JIT_TIMEOUT_MS=3000
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 AGENT_JAIL_BIN="${REPO_ROOT}/agent-jail"
@@ -488,17 +490,29 @@ run_jit_case() {
 
 python_read_repo=$'import pathlib\nprint(pathlib.Path("README.md").read_text().splitlines()[0])'
 python_read_system=$'print(open("/etc/passwd").read())'
+python_read_system_var=$'p = "/etc/passwd"\nprint(open(p).read())'
+python_read_system_pathlib=$'from pathlib import Path\nprint(Path("/etc/passwd").read_text())'
+python_read_system_pathlib_var=$'from pathlib import Path\np = Path("/etc/passwd")\nprint(p.read_text())'
 
 add_case "allow_repo_cat" "allow" "read-scope" "repo-local read should pass" cat README.md
 add_case "allow_repo_pipeline" "allow" "read-scope" "read-only shell pipeline inside repo should pass" bash -c 'cat README.md | head'
 add_case "allow_python_repo_read" "allow" "interpreters" "python read of repo file should pass" python3 -c "${python_read_repo}"
 add_case "deny_system_cat" "deny" "read-scope" "direct system file read should be blocked" bash -c 'cat /etc/passwd'
+add_case "deny_system_cat_obfuscated" "deny" "path-obfuscation" "normalized system path should still be blocked" bash -c 'cat /etc/../etc/passwd'
 add_case "deny_escape_relative" "deny" "read-scope" "relative escape outside repo should be blocked" bash -c 'cat ../../../../../../../passwd'
 add_case "deny_system_pipeline" "deny" "read-scope" "pipelined read of system file should be blocked" bash -c 'cat /etc/passwd | head'
 add_case "deny_python_system_read" "deny" "interpreters" "python literal read of system file should be blocked" python3 -c "${python_read_system}"
+add_case "deny_python_system_var_read" "deny" "interpreters" "python variable-based read of system file should be blocked" python3 -c "${python_read_system_var}"
+add_case "deny_python_pathlib_system_read" "deny" "interpreters" "python pathlib direct read of system file should be blocked" python3 -c "${python_read_system_pathlib}"
+add_case "deny_python_pathlib_var_read" "deny" "interpreters" "python pathlib variable read of system file should be blocked" python3 -c "${python_read_system_pathlib_var}"
+add_case "deny_ruby_system_read" "deny" "interpreters" "ruby direct system file read should be blocked" ruby -e 'puts File.read("/etc/passwd")'
+add_case "deny_perl_system_read" "deny" "interpreters" "perl direct system file read should be blocked" perl -e 'open my $f, "<", "/etc/passwd" or die $!; print <$f>'
 add_case "deny_fd_path" "deny" "devices" "reading via /dev/fd path should be blocked by read scope" bash -c 'exec 3<README.md; cat /dev/fd/3'
 add_case "deny_grep_system" "deny" "read-scope" "grep on system file should be blocked" bash -c 'grep root /etc/passwd'
 add_case "deny_find_system" "deny" "read-scope" "find on system tree should be blocked" bash -c 'find /etc -maxdepth 1 -type f'
+add_case "deny_shell_var_indirection" "deny" "shell-indirection" "shell variable-expanded path read should be blocked" bash -c 'p=/etc/passwd; cat "$p"'
+add_case "deny_shell_substitution_indirection" "deny" "shell-indirection" "command-substituted path read should be blocked" bash -c 'cat "$(printf /etc/passwd)"'
+add_case "deny_shell_xargs_indirection" "deny" "pipeline-hiding" "xargs-mediated path read should be blocked" bash -c 'printf "/etc/passwd\n" | xargs cat'
 
 if [ -e /proc/1/cmdline ]; then
   add_case "deny_proc_other_pid" "deny-or-missing" "procfs" "reading another process proc entry should not pass" bash -c 'cat /proc/1/cmdline'

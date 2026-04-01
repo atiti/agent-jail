@@ -30,3 +30,29 @@ class ScriptAnalysisTests(unittest.TestCase):
             result = analyze_invocation(["bash", path], cwd=tmp)
         self.assertEqual(result["template"], "shell read-only script")
         self.assertEqual(result["risk"], "low")
+
+    def test_tracks_python_variable_based_read_path(self):
+        result = analyze_invocation(
+            ["python3", "-c", 'p = "/etc/passwd"\nprint(open(p).read())'],
+            cwd=os.getcwd(),
+        )
+        self.assertEqual(result["template"], "python local inspection script")
+        self.assertIn("/etc/passwd", result["read_paths"])
+
+    def test_tracks_python_pathlib_read_path(self):
+        result = analyze_invocation(
+            ["python3", "-c", 'from pathlib import Path\nprint(Path("/etc/passwd").read_text())'],
+            cwd=os.getcwd(),
+        )
+        self.assertIn("/etc/passwd", result["read_paths"])
+
+    def test_tracks_ruby_read_path(self):
+        result = analyze_invocation(["ruby", "-e", 'puts File.read("/etc/passwd")'], cwd=os.getcwd())
+        self.assertIn("/etc/passwd", result["read_paths"])
+
+    def test_tracks_perl_read_path(self):
+        result = analyze_invocation(
+            ["perl", "-e", 'open my $f, "<", "/etc/passwd" or die $!; print <$f>'],
+            cwd=os.getcwd(),
+        )
+        self.assertIn("/etc/passwd", result["read_paths"])

@@ -52,10 +52,13 @@ Covered cases include:
 - repo-local reads that should pass
 - direct system file reads that should fail
 - relative escapes outside the repo
+- normalized and obfuscated path reads such as `/etc/../etc/passwd`
 - shell pipelines over forbidden paths
-- Python literal reads of forbidden paths
+- Python literal, variable-based, and `pathlib` reads of forbidden paths
+- Ruby and Perl direct reads of forbidden paths
 - `/dev/fd/*` path reads
 - `/proc` reads when available on the host
+- shell indirection tricks such as variable expansion, command substitution, and `xargs`-mediated reads
 - an `OBSERVE` case for `dmesg`, which is intentionally reported as current behavior rather than locked to a pass/fail expectation
 - stubbed JIT auto-allow, review, and reject cases with assertions on `policy.json`
 - a live Azure JIT smoke case that asserts sane semantic behavior for a low-risk interpreted command

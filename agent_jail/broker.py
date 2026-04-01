@@ -226,10 +226,10 @@ def _non_flag_paths(tool, items):
 
 
 def _allowed_read_roots(context):
-    roots = [os.path.abspath(path) for path in (context or {}).get("read_roots", []) if path]
+    roots = [os.path.realpath(os.path.abspath(path)) for path in (context or {}).get("read_roots", []) if path]
     cwd = (context or {}).get("cwd")
     if cwd:
-        roots.append(os.path.abspath(cwd))
+        roots.append(os.path.realpath(os.path.abspath(cwd)))
     deduped = []
     for path in roots:
         if path not in deduped:
@@ -247,7 +247,7 @@ def _matches_deny_pattern(candidate, patterns):
 
 
 def _path_within_roots(path, cwd, roots):
-    candidate = os.path.abspath(path if os.path.isabs(path) else os.path.join(cwd or os.getcwd(), path))
+    candidate = os.path.realpath(os.path.abspath(path if os.path.isabs(path) else os.path.join(cwd or os.getcwd(), path)))
     for root in roots:
         try:
             if os.path.commonpath([candidate, root]) == root:

@@ -78,6 +78,19 @@ class _PythonAnalyzer(ast.NodeVisitor):
         self.network = False
         self.dynamic_code = False
         self.read_paths = []
+        self.string_bindings = {}
+        self.path_bindings = {}
+
+    def visit_Assign(self, node):
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target = node.targets[0].id
+            literal = _resolve_python_string(node.value, self)
+            if literal is not None:
+                self.string_bindings[target] = literal
+            path_literal = _resolve_python_path(node.value, self)
+            if path_literal is not None:
+                self.path_bindings[target] = path_literal
+        self.generic_visit(node)
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -91,6 +104,7 @@ class _PythonAnalyzer(ast.NodeVisitor):
 
     def visit_Call(self, node):
         name = _call_name(node.func)
+        method = node.func.attr if isinstance(node.func, ast.Attribute) else ""
         if name in {"eval", "exec", "compile"}:
             self.dynamic_code = True
         if name in {"subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output", "subprocess.Popen"}:
@@ -103,13 +117,17 @@ class _PythonAnalyzer(ast.NodeVisitor):
                     self.literal_subprocesses.append(args)
                 else:
                     self.dynamic_subprocess = True
-        if name in {"open", "pathlib.Path.write_text", "pathlib.Path.write_bytes", "Path.write_text", "Path.write_bytes"}:
-            if _is_write_call(name, node):
+        if name == "open" or method in {"write_text", "write_bytes"}:
+            if _is_write_call(name, node) or method in {"write_text", "write_bytes"}:
                 self.file_write = True
             elif name == "open" and node.args:
-                path = _literal_str(node.args[0])
+                path = _resolve_python_string(node.args[0], self)
                 if path:
                     self.read_paths.append(path)
+        if method in {"read_text", "read_bytes"}:
+            path = _resolve_python_path(node.func.value, self)
+            if path:
+                self.read_paths.append(path)
         if name in {
             "os.remove",
             "os.unlink",
@@ -169,6 +187,28 @@ def _is_write_call(name, node):
             mode = _literal_str(keyword.value) or ""
             return any(flag in mode for flag in "wax+")
     return False
+
+
+def _resolve_python_string(node, analyzer):
+    value = _literal_str(node)
+    if value is not None:
+        return value
+    if isinstance(node, ast.Name):
+        return analyzer.string_bindings.get(node.id)
+    return None
+
+
+def _resolve_python_path(node, analyzer):
+    literal = _resolve_python_string(node, analyzer)
+    if literal is not None:
+        return literal
+    if isinstance(node, ast.Name):
+        return analyzer.path_bindings.get(node.id) or analyzer.string_bindings.get(node.id)
+    if isinstance(node, ast.Call):
+        name = _call_name(node.func)
+        if name in {"Path", "pathlib.Path"} and node.args:
+            return _resolve_python_string(node.args[0], analyzer)
+    return None
 
 
 def _leaf_tool_category(tool):
@@ -253,6 +293,12 @@ def _analyze_python_source(source):
 
 def _heuristic_script_summary(source, language):
     lower = source.lower()
+    read_paths = []
+    if language == "ruby":
+        read_paths.extend(re.findall(r'File\.(?:read|open)\(\s*["\']([^"\']+)["\']', source))
+    if language == "perl":
+        read_paths.extend(re.findall(r'open\s*\([^,]+,\s*["\']<["\']\s*,\s*["\']([^"\']+)["\']', source))
+        read_paths.extend(re.findall(r'open\s+[^,]+,\s*["\']<["\']\s*,\s*["\']([^"\']+)["\']', source))
     if any(token in lower for token in ("curl ", "wget ", " ssh ", "sudo ", " doas ")):
         return {"risk": "high", "category": "general", "template": f"{language} sensitive script", "reason": f"{language} sensitive script"}
     if any(token in lower for token in ("rm ", "unlink", "file.delete", "rmtree")):
@@ -262,8 +308,8 @@ def _heuristic_script_summary(source, language):
     if any(token in lower for token in ("net::http", "open-uri", "lwp::", "socket", "http")):
         return {"risk": "high", "category": "general", "template": f"{language} network script", "reason": f"{language} network script"}
     if re.search(r"\b(open|print)\b", lower):
-        return {"risk": "low", "category": "general", "template": f"{language} local script", "reason": f"{language} local script"}
-    return {"risk": "low", "category": "general", "template": f"{language} local script", "reason": f"{language} local script"}
+        return {"risk": "low", "category": "general", "template": f"{language} local script", "reason": f"{language} local script", "read_paths": read_paths}
+    return {"risk": "low", "category": "general", "template": f"{language} local script", "reason": f"{language} local script", "read_paths": read_paths}
 
 
 def _script_source_for_interpreter(tool, argv, cwd):

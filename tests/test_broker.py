@@ -204,3 +204,39 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "deny")
         self.assertIn("outside allowed roots", result["reason"])
+
+    def test_read_guard_denies_python_variable_read_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            os.mkdir(repo)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, mounts=[{"path": repo, "mode": "rw"}])
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["python3", "-c", 'p = "/etc/passwd"; print(open(p).read())'],
+                    "raw": 'python3 -c "p = \\"/etc/passwd\\"; print(open(p).read())"',
+                    "cwd": repo,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("outside allowed roots", result["reason"])
+
+    def test_read_guard_denies_symlink_escape_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            os.mkdir(repo)
+            link = os.path.join(repo, "passwd-link")
+            os.symlink("/etc/passwd", link)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, mounts=[{"path": repo, "mode": "rw"}])
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["cat", link],
+                    "raw": f"cat {link}",
+                    "cwd": repo,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("outside allowed roots", result["reason"])

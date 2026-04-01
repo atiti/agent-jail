@@ -27,6 +27,9 @@
 - Extended the manual validation suite with standardized stub-JIT cases for auto-allow, pending-review, and reject behavior.
 - Added a separate live Azure JIT smoke mode to the manual validation suite for real model behavior checks with semantic rule/review assertions.
 - Tightened live Azure smoke validation so transport, auth, provider, and timeout failures are reported as FAIL instead of passing as generic reviews.
+- Expanded the manual validation suite with adversarial read-evasion probes covering path normalization, interpreter variable/pathlib reads, Ruby/Perl file reads, and shell indirection observe cases.
+- Promoted the shell indirection probes in the manual validation suite to explicit deny expectations after verifying variable expansion, command substitution, and `xargs`-mediated reads are blocked.
+- Tightened read-scope enforcement to resolve real paths, closing symlink-based read escapes inside otherwise allowed roots.
 - Tightened read-only classification for common inspection commands like `sed -n`, `head`, `sort`, and `printenv`.
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.
