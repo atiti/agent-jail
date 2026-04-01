@@ -279,6 +279,27 @@ class CLITests(unittest.TestCase):
         self.assertIsNone(values["ALL_PROXY"])
         self.assertIsNone(values["SOCKS_PROXY"])
 
+    def test_run_with_proxy_mode_codex_http_native_sets_only_http_proxy_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                "--proxy-mode",
+                "codex-http-native",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertIsNone(values["ALL_PROXY"])
+        self.assertIsNone(values["SOCKS_PROXY"])
+
     def test_apply_target_env_profile_strips_inherited_codex_proxy_and_cert_noise(self):
         from agent_jail.main import apply_target_env_profile
 
@@ -331,6 +352,25 @@ class CLITests(unittest.TestCase):
         self.assertNotIn("ALL_PROXY", env)
         self.assertNotIn("SOCKS_PROXY", env)
         self.assertEqual(env["SSL_CERT_FILE"], "/tmp/jail-cert.pem")
+        self.assertNotIn("SSL_CERT_DIR", env)
+
+    def test_apply_target_env_profile_codex_http_native_clears_socks_and_all_cert_env(self):
+        from agent_jail.main import apply_target_env_profile
+
+        env = {
+            "HTTP_PROXY": "http://127.0.0.1:5000",
+            "HTTPS_PROXY": "http://127.0.0.1:5000",
+            "ALL_PROXY": "socks5://127.0.0.1:5001",
+            "SOCKS_PROXY": "socks5://127.0.0.1:5001",
+            "SSL_CERT_FILE": "/tmp/jail-cert.pem",
+            "SSL_CERT_DIR": "/tmp/jail-certs",
+        }
+        apply_target_env_profile(env, ["/usr/local/bin/codex", "exec", "hi"], proxy_mode="codex-http-native")
+        self.assertEqual(env["HTTP_PROXY"], "http://127.0.0.1:5000")
+        self.assertEqual(env["HTTPS_PROXY"], "http://127.0.0.1:5000")
+        self.assertNotIn("ALL_PROXY", env)
+        self.assertNotIn("SOCKS_PROXY", env)
+        self.assertNotIn("SSL_CERT_FILE", env)
         self.assertNotIn("SSL_CERT_DIR", env)
 
     def test_print_launch_env_writes_proxy_subset_to_stderr(self):

@@ -86,9 +86,11 @@ def apply_target_env_profile(env, target_argv, proxy_mode=None):
     for key in profile["clear"]:
         env.pop(key, None)
     env.update(preserved)
-    if target_name == "codex" and proxy_mode == "codex-http":
+    if target_name == "codex" and proxy_mode in {"codex-http", "codex-http-native"}:
         for key in ("ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_DIR"):
             env.pop(key, None)
+        if proxy_mode == "codex-http-native":
+            env.pop("SSL_CERT_FILE", None)
     return env
 
 
@@ -194,7 +196,11 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run")
     run.add_argument("--proxy", action="store_true")
-    run.add_argument("--proxy-mode", choices=["http", "socks", "hybrid", "codex-http"], default="hybrid")
+    run.add_argument(
+        "--proxy-mode",
+        choices=["http", "socks", "hybrid", "codex-http", "codex-http-native"],
+        default="hybrid",
+    )
     run.add_argument("--proxy-debug", action="store_true")
     run.add_argument("--print-launch-env", action="store_true")
     run.add_argument("--deny-network-by-default", action="store_true")
@@ -713,7 +719,7 @@ def run(argv=None):
             env["AGENT_JAIL_HTTP_PROXY"] = http_proxy_url
             env["AGENT_JAIL_SOCKS_PROXY"] = socks_proxy_url
             proxy_mode = args.proxy_mode or "hybrid"
-            if proxy_mode in {"http", "hybrid", "codex-http"}:
+            if proxy_mode in {"http", "hybrid", "codex-http", "codex-http-native"}:
                 env["HTTP_PROXY"] = http_proxy_url
                 env["HTTPS_PROXY"] = http_proxy_url
             else:
