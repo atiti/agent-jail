@@ -124,3 +124,34 @@ class CapabilityCLITests(unittest.TestCase):
         self.assertIn("delegated-out", proc.stdout)
         self.assertIn("[delegate:ops]", proc.stderr)
         self.assertIn("delegated-err", proc.stderr)
+
+    def test_delegate_execute_disallowed_tool_returns_clean_denial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            script_path = os.path.join(tmp, "delegate-exec")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(script_path, 0o755)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(
+                sock_path,
+                store,
+                capabilities={"delegate": True, "delegates": ["ops"]},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": script_path,
+                        "allowed_tools": ["opsctl"],
+                        "mode": "execute",
+                    }
+                ],
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+            env = os.environ.copy()
+            env["AGENT_JAIL_SOCKET"] = sock_path
+            proc = self.run_cap("delegate", "ops", "python3", "-c", "print('nope')", env=env)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("agent-jail-cap denied", proc.stderr)
+        self.assertIn("does not allow tool python3", proc.stderr)

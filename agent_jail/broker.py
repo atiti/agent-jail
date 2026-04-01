@@ -8,7 +8,7 @@ import threading
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.delegate_proxy import run_delegate_proxy, stream_delegate_proxy
+from agent_jail.delegate_proxy import prepare_delegate_proxy, run_delegate_proxy, stream_delegate_proxy
 from agent_jail.events import render_event
 from agent_jail.rule_jit import JITRuleEngine
 from agent_jail.script_analysis import analyze_invocation, detect_secret_capabilities
@@ -855,6 +855,16 @@ class BrokerServer:
             if delegate:
                 delegate["configured_secrets"] = self.secrets
             if delegate and delegate.get("mode") == "execute" and wfile is not None:
+                try:
+                    prepare_delegate_proxy(
+                        self.capabilities,
+                        {**self.delegates, delegate_name: delegate},
+                        delegate_name,
+                        payload.get("command", []),
+                    )
+                except PermissionError as exc:
+                    self._log("DENY", f"capability {name}", "capability", kind="capability", capability=name, reason=str(exc))
+                    return {"decision": "deny", "reason": str(exc)}
                 self._log("ALLOW", f"capability {name}", "capability", kind="capability", capability=name)
                 self._write_frame(wfile, {"decision": "allow", "reason": "capability allowed", "stream": True})
                 stream_delegate_proxy(

@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.delegate_proxy import run_delegate_proxy
+from agent_jail.delegate_proxy import prepare_delegate_proxy, run_delegate_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
 
@@ -20,6 +20,15 @@ class CapabilityProxyTests(unittest.TestCase):
             ["opsctl", "status", "."],
         )
         self.assertEqual(result["delegated_command"][:5], ["sudo", "-n", "-u", "delegate-runner", "/usr/local/bin/delegate-exec"])
+
+    def test_prepare_delegate_proxy_rejects_disallowed_tool(self):
+        with self.assertRaises(PermissionError):
+            prepare_delegate_proxy(
+                {"delegates": ["ops"]},
+                {"ops": {"name": "ops", "executor": "/usr/local/bin/delegate-exec", "allowed_tools": ["opsctl"]}},
+                "ops",
+                ["python3", "-c", "print('nope')"],
+            )
 
     def test_delegate_can_strip_tool_name_for_tool_wrapper_executor(self):
         result = run_delegate_proxy(

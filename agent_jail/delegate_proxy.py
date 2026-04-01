@@ -88,13 +88,13 @@ def _build_delegate_command(delegate, command):
     return argv
 
 
-def run_delegate_proxy(capabilities, delegates, name, command):
+def prepare_delegate_proxy(capabilities, delegates, name, command):
     allowed = set(capabilities.get("delegates", []))
     if name not in allowed:
         raise PermissionError(f"delegate {name} capability denied")
     delegate = delegates.get(name)
     if not delegate:
-        return {"status": "ok", "delegate": name, "command": list(command)}
+        raise PermissionError(f"delegate {name} is not configured")
     allowed_tools = set(delegate.get("allowed_tools", []))
     if allowed_tools:
         tool = command[0] if command else ""
@@ -103,6 +103,11 @@ def run_delegate_proxy(capabilities, delegates, name, command):
     delegated = _build_delegate_command(delegate, command)
     env = _delegate_env(delegate)
     env = _inject_required_secret_env(env, delegate, command)
+    return delegate, delegated, env
+
+
+def run_delegate_proxy(capabilities, delegates, name, command):
+    delegate, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
     if delegate.get("mode") == "execute":
         proc = subprocess.run(delegated, text=True, capture_output=True, env=env)
         return {
@@ -118,20 +123,7 @@ def run_delegate_proxy(capabilities, delegates, name, command):
 
 
 def stream_delegate_proxy(capabilities, delegates, name, command, write_frame):
-    allowed = set(capabilities.get("delegates", []))
-    if name not in allowed:
-        raise PermissionError(f"delegate {name} capability denied")
-    delegate = delegates.get(name)
-    if not delegate:
-        raise PermissionError(f"delegate {name} is not configured")
-    allowed_tools = set(delegate.get("allowed_tools", []))
-    if allowed_tools:
-        tool = command[0] if command else ""
-        if tool not in allowed_tools:
-            raise PermissionError(f"delegate {name} does not allow tool {tool}")
-    delegated = _build_delegate_command(delegate, command)
-    env = _delegate_env(delegate)
-    env = _inject_required_secret_env(env, delegate, command)
+    _, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
     header = f"[delegate:{name}] {' '.join(delegated)}\n"
     write_frame({"type": "header", "stream": "stderr", "text": header})
     proc = subprocess.Popen(
