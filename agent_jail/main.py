@@ -57,9 +57,19 @@ def resolve_target(target_argv, env):
         if os.path.exists(resolved):
             return [resolved, *target_argv[1:]]
         raise FileNotFoundError(candidate)
-    resolved = shutil.which(candidate, path=env.get("PATH"))
-    if resolved:
-        return [os.path.realpath(resolved), *target_argv[1:]]
+    candidate_name = os.path.basename(candidate)
+    search_paths = []
+    # Launch top-level agent binaries from the host PATH directly so the outer
+    # jail process does not recurse back through a writable session wrapper.
+    if candidate_name in {"codex", "claude"}:
+        search_paths.append(env.get("AGENT_JAIL_ORIG_PATH"))
+    search_paths.append(env.get("PATH"))
+    for path_value in search_paths:
+        if not path_value:
+            continue
+        resolved = shutil.which(candidate, path=path_value)
+        if resolved:
+            return [os.path.realpath(resolved), *target_argv[1:]]
     raise FileNotFoundError(candidate)
 
 
@@ -998,7 +1008,9 @@ def run(argv=None):
             session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")
             with open(session_proxy_env_path, "w", encoding="utf-8") as handle:
                 json.dump(session_proxy_env, handle, sort_keys=True)
-            bootstrap_hops = 2 if args.target and os.path.basename(args.target[0]) == "codex" else 1
+            # Top-level codex/claude now launch from the host binary directly,
+            # so only wrapped child shells/subprocesses need to consume hops.
+            bootstrap_hops = 1
             env["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bootstrap_hops)
             for key in (
                 "AGENT_JAIL_HTTP_PROXY",

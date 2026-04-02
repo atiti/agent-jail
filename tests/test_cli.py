@@ -51,6 +51,32 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 127)
         self.assertIn("target command not found", proc.stderr.lower())
 
+    def test_resolve_target_prefers_host_path_for_top_level_codex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
+            host_dir = os.path.join(tmp, "host-bin")
+            os.makedirs(wrapper_dir)
+            os.makedirs(host_dir)
+            wrapper_target = os.path.join(wrapper_dir, "codex")
+            host_target = os.path.join(host_dir, "codex")
+            with open(wrapper_target, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            with open(host_target, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            os.chmod(wrapper_target, 0o755)
+            os.chmod(host_target, 0o755)
+            from agent_jail.main import resolve_target
+
+            resolved = resolve_target(
+                ["codex", "resume", "session-id"],
+                {
+                    "PATH": wrapper_dir,
+                    "AGENT_JAIL_ORIG_PATH": host_dir,
+                },
+            )
+        self.assertEqual(resolved[0], os.path.realpath(host_target))
+        self.assertEqual(resolved[1:], ["resume", "session-id"])
+
     def test_run_uses_default_project_and_filesystem_roots_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")
