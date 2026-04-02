@@ -14,6 +14,7 @@
 - Added `--proxy-commands-only` so an agent like Codex can launch without proxy env while wrapped subprocesses inside the session still inherit the session-managed proxy settings.
 - Fixed `--proxy-commands-only` for Codex's `codex -> node` bootstrap chain so the app stays unproxied while later wrapped child commands still pick up the session proxy env.
 - Stopped exposing proxy-shaped environment variables to the parent process in `--proxy-commands-only` mode by storing the session proxy env in a wrapper-only session file instead.
+- Limited `--proxy-commands-only` proxy restoration to shell wrappers so Codex's internal subprocesses stay unproxied while explicit shell commands inside the session still use the proxy.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.

@@ -229,8 +229,8 @@ class CLITests(unittest.TestCase):
                 (
                     "import json, os, subprocess; "
                     "parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}; "
-                    "child=json.loads(subprocess.check_output(['python3','-c',"
-                    "\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\""
+                    "child=json.loads(subprocess.check_output(['zsh','-lc',"
+                    "\"python3 -c \\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\"\""
                     "], text=True)); "
                     "print(json.dumps({'parent': parent, 'child': child}, sort_keys=True))"
                 ),
@@ -268,8 +268,8 @@ class CLITests(unittest.TestCase):
                     "node_result=json.loads(subprocess.check_output(['node','-c',"
                     "\"import json, os, subprocess; "
                     "node_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY','http_proxy','https_proxy','REQUESTS_CA_BUNDLE','AGENT_JAIL_HTTP_PROXY','AGENT_JAIL_SOCKS_PROXY','AGENT_JAIL_SESSION_PROXY_ENV')}; "
-                    "child=json.loads(subprocess.check_output(['python3','-c',"
-                    "\\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\""
+                    "child=json.loads(subprocess.check_output(['zsh','-lc',"
+                    "\\\"python3 -c \\\\\\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\\\\\"\\\""
                     "], text=True)); "
                     "print(json.dumps({'node_parent': node_parent, 'child': child}, sort_keys=True))\""
                     "], text=True)); "
@@ -297,6 +297,31 @@ class CLITests(unittest.TestCase):
         self.assertTrue(values["node_result"]["child"]["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
         self.assertIsNone(values["node_result"]["child"]["ALL_PROXY"])
         self.assertTrue(values["node_result"]["child"]["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+
+    def test_run_with_proxy_commands_only_does_not_proxy_non_shell_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--proxy",
+                "--proxy-commands-only",
+                "python3",
+                "-c",
+                (
+                    "import json, subprocess; "
+                    "child=json.loads(subprocess.check_output(['python3','-c',"
+                    "\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\""
+                    "], text=True)); "
+                    "print(json.dumps(child, sort_keys=True))"
+                ),
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            json.loads(proc.stdout.strip()),
+            {"ALL_PROXY": None, "HTTPS_PROXY": None, "HTTP_PROXY": None, "SOCKS_PROXY": None},
+        )
 
     def test_run_with_proxy_mode_http_sets_only_http_proxy_env(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,6 +6,7 @@ import json
 from agent_jail.broker import broker_request
 
 BLACKLISTED_WRAPPERS = {"agent-jail", "agent-jail-cap"}
+PROXY_RESTORE_WRAPPERS = {"sh", "bash", "zsh"}
 
 
 WRAPPER_TEMPLATE = """#!/bin/sh
@@ -84,9 +85,10 @@ def dispatch_main():
     bypass_hops = int(os.environ.get("AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS", "0") or "0")
     if bypass_hops > 0:
         os.environ["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bypass_hops - 1)
-    elif session_proxy_env:
-        # Allow the parent agent to stay unproxied while wrapped subprocesses
-        # inherit the session-managed proxy/cert environment.
+    elif session_proxy_env and command in PROXY_RESTORE_WRAPPERS:
+        # In commands-only mode, restore proxy env only for shell-based user
+        # command execution, not arbitrary internal subprocesses like MCP
+        # workers or agent bootstrap helpers.
         for key in (
             "HTTP_PROXY",
             "HTTPS_PROXY",
