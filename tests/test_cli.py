@@ -248,6 +248,9 @@ class CLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
             env["AGENT_JAIL_HOME"] = tmp
+            env["http_proxy"] = "http://host-proxy.invalid:8080"
+            env["https_proxy"] = "http://host-proxy.invalid:8080"
+            env["REQUESTS_CA_BUNDLE"] = "/tmp/host-ca.pem"
             fake_bin = os.path.join(tmp, "bin")
             os.makedirs(fake_bin, exist_ok=True)
             os.symlink(sys.executable, os.path.join(fake_bin, "codex"))
@@ -261,10 +264,10 @@ class CLITests(unittest.TestCase):
                 "-c",
                 (
                     "import json, os, subprocess; "
-                    "codex_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}; "
+                    "codex_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY','http_proxy','https_proxy','REQUESTS_CA_BUNDLE')}; "
                     "node_result=json.loads(subprocess.check_output(['node','-c',"
                     "\"import json, os, subprocess; "
-                    "node_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}; "
+                    "node_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY','http_proxy','https_proxy','REQUESTS_CA_BUNDLE')}; "
                     "child=json.loads(subprocess.check_output(['python3','-c',"
                     "\\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\""
                     "], text=True)); "
@@ -276,7 +279,15 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        expected_clean = {"ALL_PROXY": None, "HTTPS_PROXY": None, "HTTP_PROXY": None, "SOCKS_PROXY": None}
+        expected_clean = {
+            "ALL_PROXY": None,
+            "HTTPS_PROXY": None,
+            "HTTP_PROXY": None,
+            "SOCKS_PROXY": None,
+            "REQUESTS_CA_BUNDLE": None,
+            "http_proxy": None,
+            "https_proxy": None,
+        }
         self.assertEqual(values["codex_parent"], expected_clean)
         self.assertEqual(values["node_result"]["node_parent"], expected_clean)
         self.assertTrue(values["node_result"]["child"]["HTTP_PROXY"].startswith("http://127.0.0.1:"))

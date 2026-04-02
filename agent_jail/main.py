@@ -759,7 +759,21 @@ def run(argv=None):
             env["AGENT_JAIL_SESSION_PROXY_ENV"] = json.dumps(session_proxy_env, sort_keys=True)
             bootstrap_hops = 2 if args.target and os.path.basename(args.target[0]) == "codex" else 1
             env["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bootstrap_hops)
-            for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+            for key in (
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "SOCKS_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+                "socks_proxy",
+                "SSL_CERT_FILE",
+                "SSL_CERT_DIR",
+                "REQUESTS_CA_BUNDLE",
+                "CURL_CA_BUNDLE",
+                "NODE_EXTRA_CA_CERTS",
+            ):
                 env.pop(key, None)
         apply_target_env_profile(env, target_argv, proxy_mode=args.proxy_mode if args.proxy else None)
         if args.print_launch_env:

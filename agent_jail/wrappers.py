@@ -79,7 +79,21 @@ def dispatch_main():
     elif session_proxy_env:
         # Allow the parent agent to stay unproxied while wrapped subprocesses
         # inherit the session-managed proxy/cert environment.
-        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+        for key in (
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "SOCKS_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "socks_proxy",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "REQUESTS_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "NODE_EXTRA_CA_CERTS",
+        ):
             os.environ.pop(key, None)
         os.environ.update(json.loads(session_proxy_env))
     exec_argv = reply.get("rewrite") or full_argv
