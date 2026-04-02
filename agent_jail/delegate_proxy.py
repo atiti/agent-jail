@@ -80,6 +80,19 @@ def _validate_delegate_command(delegate, command):
         )
 
 
+def delegate_matches_command(delegate, command):
+    if not command:
+        return False
+    tool = command[0]
+    allowed_tools = set(delegate.get("allowed_tools") or [])
+    if not allowed_tools:
+        return True
+    if tool in allowed_tools:
+        return True
+    base = os.path.basename(tool)
+    return base in allowed_tools
+
+
 def _delegate_command_argv(delegate, command):
     argv = list(command)
     cwd = delegate.get("_cwd")

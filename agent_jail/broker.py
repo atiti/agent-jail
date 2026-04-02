@@ -9,7 +9,7 @@ import time
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.delegate_proxy import prepare_delegate_proxy, run_delegate_proxy, stream_delegate_proxy
+from agent_jail.delegate_proxy import delegate_matches_command, prepare_delegate_proxy, run_delegate_proxy, stream_delegate_proxy
 from agent_jail.events import render_event
 from agent_jail.rule_jit import JITRuleEngine
 from agent_jail.script_analysis import analyze_invocation, detect_secret_capabilities
@@ -438,15 +438,23 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
     capabilities = detected.get("secret_capabilities", [])
     if not capabilities:
         return None
+    preferred = []
+    fallback = []
     for delegate in delegates or ():
         allowed = set(delegate.get("allowed_secrets") or [])
         if allowed and set(capabilities).issubset(allowed):
-            names = ", ".join(capabilities)
-            return {
-                "risk": "high",
-                "reason": f"secret capability required: {names}; use agent-jail-cap delegate {delegate.get('name')} {' '.join(argv)}",
-                "category": "secret-capability",
-            }
+            if delegate_matches_command(delegate, argv):
+                preferred.append(delegate)
+            else:
+                fallback.append(delegate)
+    chosen = (preferred or fallback or [None])[0]
+    if chosen:
+        names = ", ".join(capabilities)
+        return {
+            "risk": "high",
+            "reason": f"secret capability required: {names}; use agent-jail-cap delegate {chosen.get('name')} {' '.join(argv)}",
+            "category": "secret-capability",
+        }
     names = ", ".join(capabilities)
     return {
         "risk": "critical",

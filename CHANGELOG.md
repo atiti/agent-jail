@@ -27,6 +27,7 @@
 - Tightened JIT review gating so provider failures, transport errors, explicit rejects, and zero-confidence asks are denied directly instead of being persisted as pending manual reviews.
 - Fixed the session-local `agent-jail-cap` launcher to embed the repo root directly instead of depending on `AGENT_JAIL_SOURCE_ROOT`, so delegated commands keep working even if that environment variable is missing in a child process.
 - Tightened delegated ops UX by rejecting unsupported script-style entrypoints before they hit the runner, showing allowed tools in delegate denials, and emitting a local hint when `privateinfractl exec` is likely to remain in dry-run mode without `--approve`.
+- Added exact-path secret delegate matching for local scripts and taught shell syntax-check commands like `bash -n`/`zsh -n` to bypass secret-capability routing when they only validate syntax.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.

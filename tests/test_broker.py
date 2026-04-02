@@ -412,6 +412,35 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result["decision"], "allow")
         self.assertEqual(result["reason"], "local ati-cto brief generation script")
 
+    def test_secret_capability_guides_to_matching_local_script_delegate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = os.path.join(tmp, "wifi-health.sh")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nprintf '%s\\n' \"$AGE_KEY_FILE\"\n")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.keys.txt"}}},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["privateinfractl"],
+                        "allowed_secrets": ["age_key_file"],
+                    },
+                    {
+                        "name": "local-secrets",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": [script_path],
+                        "allowed_secrets": ["age_key_file"],
+                    },
+                ],
+            )
+            result = broker.handle({"type": "exec", "argv": [script_path], "raw": script_path, "cwd": tmp})
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("agent-jail-cap delegate local-secrets", result["reason"])
+
     def test_read_guard_denies_python_literal_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")

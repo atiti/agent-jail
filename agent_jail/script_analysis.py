@@ -348,6 +348,11 @@ def _secret_capabilities_for_env_vars(secret_env_vars, configured_secrets):
 
 
 def _script_source_for_interpreter(tool, argv, cwd):
+    direct_path = _resolve_script_path(tool, cwd)
+    if direct_path:
+        for language, extensions in SCRIPT_EXTENSIONS.items():
+            if direct_path.suffix in extensions:
+                return (language, direct_path.read_text(encoding="utf-8"), str(direct_path))
     tool_name = os.path.basename(tool)
     if tool_name.startswith("python"):
         if len(argv) > 2 and argv[1] == "-c":
@@ -380,6 +385,15 @@ def _script_source_for_interpreter(tool, argv, cwd):
     return (None, None, None)
 
 
+def _is_shell_syntax_check_argv(argv):
+    if not argv:
+        return False
+    tool_name = os.path.basename(argv[0])
+    if tool_name not in {"sh", "bash", "zsh"}:
+        return False
+    return any(item == "-n" for item in argv[1:])
+
+
 def unwrap_argv(argv):
     if not argv:
         return argv
@@ -409,7 +423,17 @@ def analyze_invocation(argv, cwd=None):
         except ShellAnalysisError:
             result = {"risk": "medium", "category": "general", "template": "shell script", "reason": "unparseable shell script"}
             analysis = {"commands": []}
-        result["secret_env_vars"] = _extract_secret_env_vars(source, language)
+        if _is_shell_syntax_check_argv(effective):
+            result = {
+                "risk": "low",
+                "category": "read-only",
+                "template": "shell syntax check",
+                "reason": "shell syntax check",
+                "commands": [],
+            }
+            result["secret_env_vars"] = []
+        else:
+            result["secret_env_vars"] = _extract_secret_env_vars(source, language)
         return {"argv": effective, "language": language, "source_path": path, "commands": analysis["commands"], **result}
     if language in {"ruby", "perl"} and source:
         result = _heuristic_script_summary(source, language)
