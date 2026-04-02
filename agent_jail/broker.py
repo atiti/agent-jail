@@ -22,6 +22,10 @@ AGENT_LAUNCH_BYPASS_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
     "--allow-dangerously-skip-permissions",
 }
+AGENT_SCRIPT_MARKERS = (
+    "/@openai/codex/",
+    "/@anthropic-ai/claude-code/",
+)
 READ_ONLY_TOOLS = {"pwd", "ls", "cat", "rg", "grep", "find", "ruby", "head", "printenv"}
 MUTATING_TOOLS = {"mv", "cp", "mkdir", "touch", "sed", "tee"}
 DEFAULT_SENSITIVE_ABSOLUTE_PATHS = {
@@ -219,6 +223,9 @@ def _is_agent_launcher_argv(argv):
     for item in argv[1:]:
         if item.startswith("-"):
             continue
+        normalized = item.replace("\\", "/").lower()
+        if any(marker in normalized for marker in AGENT_SCRIPT_MARKERS):
+            return True
         base = os.path.basename(item)
         stem = base.split(".", 1)[0]
         if stem in AGENT_TOOLS:
