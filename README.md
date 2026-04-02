@@ -522,6 +522,8 @@ With that profile in place, `agent-jail run <cmd>` behaves like a convenience wr
 
 `git_ssh_hosts` is an explicit allowlist for Git's SSH transport hosts. For example, adding `github.com` lets jailed `git push origin main` use Git's narrow `ssh ... git-receive-pack` transport there while leaving arbitrary SSH blocked.
 
+On macOS, the launcher now keeps top-level agent startup on the real host executable path while still exposing wrapped tools to child processes inside the jail. That split matters because npm-installed CLIs and Homebrew runtimes often bootstrap through JS shims or user-managed interpreters. The generated `sandbox-exec` profile therefore includes the explicit launch allowances needed for normal agent startup, while still keeping broker policy responsible for what the session is allowed to execute afterward.
+
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 
 The optional `filesystem` section lets you widen read-only visibility and add extra writable roots without exposing your entire home directory. `deny_read_patterns` are expanded from your local home and rendered into the macOS `sandbox-exec` profile as explicit read denials, so broad read-only roots like `~/build` can still exclude secret-like files.

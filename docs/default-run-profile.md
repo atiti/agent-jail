@@ -75,3 +75,7 @@ python3 agent-jail config set-defaults \
 ```
 
 `git_ssh_hosts` only opens the narrow Git SSH transport path to listed hosts. Arbitrary `ssh host ...` commands remain blocked by broker policy.
+
+`home_mounts` are for stateful tool directories under your home folder that should stay live inside the jailed home, such as `.overwatchr`, `.config/opencode`, or another app-specific state directory. They are mirrored into the jailed home as writable symlinks instead of being hardcoded in the launcher.
+
+On macOS, agent startup uses the real host binary path for the top-level tool and then hands a wrapped `PATH` to child processes inside the session. This avoids brittle bootstrap failures with package-manager shims while preserving normal jailed command interception once the agent is running.
