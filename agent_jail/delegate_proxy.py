@@ -4,6 +4,8 @@ import threading
 
 from agent_jail.script_analysis import detect_secret_capabilities
 
+CONTROL_PLANE_TOOLS = {"privateinfractl", "marksterctl"}
+
 
 def _expand_delegate_env_value(value, env):
     if not isinstance(value, str):
@@ -52,6 +54,32 @@ def _inject_required_secret_env(env, delegate, command):
     return env
 
 
+def _delegate_note(command):
+    if not command:
+        return None
+    tool = os.path.basename(command[0])
+    if tool in CONTROL_PLANE_TOOLS and len(command) > 1 and command[1] == "exec" and "--approve" not in command:
+        return f"{tool} exec defaults to dry-run; add --approve to execute and --elevated when required"
+    return None
+
+
+def _validate_delegate_command(delegate, command):
+    if not command:
+        raise PermissionError(f"delegate {delegate.get('name', 'unknown')} requires a command")
+    tool = command[0]
+    if delegate.get("auto_inventory_from_cwd") and delegate.get("strip_tool_name") and tool not in CONTROL_PLANE_TOOLS:
+        expected = ", ".join(sorted(CONTROL_PLANE_TOOLS))
+        raise PermissionError(
+            f"delegate {delegate.get('name', 'unknown')} expects a control-plane tool entrypoint ({expected}), got {tool}"
+        )
+    allowed_tools = set(delegate.get("allowed_tools", []))
+    if allowed_tools and tool not in allowed_tools:
+        allowed_text = ", ".join(sorted(allowed_tools))
+        raise PermissionError(
+            f"delegate {delegate.get('name', 'unknown')} does not allow tool {tool}; allowed tools: {allowed_text}"
+        )
+
+
 def _delegate_command_argv(delegate, command):
     argv = list(command)
     cwd = delegate.get("_cwd")
@@ -95,11 +123,7 @@ def prepare_delegate_proxy(capabilities, delegates, name, command):
     delegate = delegates.get(name)
     if not delegate:
         raise PermissionError(f"delegate {name} is not configured")
-    allowed_tools = set(delegate.get("allowed_tools", []))
-    if allowed_tools:
-        tool = command[0] if command else ""
-        if tool not in allowed_tools:
-            raise PermissionError(f"delegate {name} does not allow tool {tool}")
+    _validate_delegate_command(delegate, command)
     delegated = _build_delegate_command(delegate, command)
     env = _delegate_env(delegate)
     env = _inject_required_secret_env(env, delegate, command)
@@ -108,9 +132,10 @@ def prepare_delegate_proxy(capabilities, delegates, name, command):
 
 def run_delegate_proxy(capabilities, delegates, name, command):
     delegate, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
+    note = _delegate_note(command)
     if delegate.get("mode") == "execute":
         proc = subprocess.run(delegated, text=True, capture_output=True, env=env)
-        return {
+        result = {
             "status": "ok" if proc.returncode == 0 else "error",
             "delegate": name,
             "command": list(command),
@@ -119,13 +144,22 @@ def run_delegate_proxy(capabilities, delegates, name, command):
             "stdout": proc.stdout,
             "stderr": proc.stderr,
         }
-    return {"status": "ok", "delegate": name, "command": list(command), "delegated_command": delegated}
+        if note:
+            result["note"] = note
+        return result
+    result = {"status": "ok", "delegate": name, "command": list(command), "delegated_command": delegated}
+    if note:
+        result["note"] = note
+    return result
 
 
 def stream_delegate_proxy(capabilities, delegates, name, command, write_frame):
     _, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
     header = f"[delegate:{name}] {' '.join(delegated)}\n"
     write_frame({"type": "header", "stream": "stderr", "text": header})
+    note = _delegate_note(command)
+    if note:
+        write_frame({"type": "header", "stream": "stderr", "text": f"[delegate:{name}] note: {note}\n"})
     proc = subprocess.Popen(
         delegated,
         text=True,

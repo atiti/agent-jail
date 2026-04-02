@@ -30,6 +30,24 @@ class CapabilityProxyTests(unittest.TestCase):
                 ["python3", "-c", "print('nope')"],
             )
 
+    def test_prepare_delegate_proxy_rejects_script_entrypoint_for_inventory_delegate(self):
+        with self.assertRaises(PermissionError) as exc:
+            prepare_delegate_proxy(
+                {"delegates": ["ops"]},
+                {
+                    "ops": {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "strip_tool_name": True,
+                        "auto_inventory_from_cwd": True,
+                        "_cwd": "/repo",
+                    }
+                },
+                "ops",
+                ["./scripts/unifi-api.sh", "devices"],
+            )
+        self.assertIn("expects a control-plane tool entrypoint", str(exc.exception))
+
     def test_delegate_can_strip_tool_name_for_tool_wrapper_executor(self):
         result = run_delegate_proxy(
             {"delegates": ["ops"]},
@@ -73,6 +91,25 @@ class CapabilityProxyTests(unittest.TestCase):
         mocked_run.assert_called_once()
         self.assertEqual(mocked_run.call_args.kwargs["env"]["HOME"], "/Users/example")
         self.assertEqual(mocked_run.call_args.kwargs["env"]["PATH"], "/usr/bin:/bin")
+
+    def test_delegate_execute_adds_privateinfractl_dry_run_note_without_approve(self):
+        with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
+            mocked_run.return_value = mock.Mock(returncode=0, stdout="ok\n", stderr="")
+            result = run_delegate_proxy(
+                {"delegates": ["ops"]},
+                {
+                    "ops": {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["privateinfractl"],
+                        "strip_tool_name": True,
+                        "mode": "execute",
+                    }
+                },
+                "ops",
+                ["privateinfractl", "exec", "--service", "svc", "--cmd", "uptime"],
+            )
+        self.assertIn("defaults to dry-run", result["note"])
 
     def test_delegate_execute_applies_configured_env(self):
         with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
