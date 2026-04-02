@@ -631,3 +631,21 @@ class BrokerTests(unittest.TestCase):
                 }
             )
         self.assertEqual(result["decision"], "allow")
+
+    def test_claude_bypass_flag_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["claude", "--allow-dangerously-skip-permissions"],
+                    "raw": "claude --allow-dangerously-skip-permissions",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")

@@ -1040,6 +1040,26 @@ class CLITests(unittest.TestCase):
         self.assertNotIn("review-2", text)
         self.assertIn("hidden internal reviews: 1", text)
 
+    def test_review_list_shows_agent_launch_bypass_reviews(self):
+        text = _format_review_list(
+            [
+                {
+                    "id": "review-1",
+                    "tool": "node",
+                    "action": "exec",
+                    "template": "node *",
+                    "raw": "node /path/to/claude.js --allow-dangerously-skip-permissions",
+                    "reason": "needs review",
+                    "confidence": 0.8,
+                    "source": "azure_openai_jit",
+                },
+            ],
+            show_all=False,
+            color=False,
+        )
+        self.assertIn("review-1", text)
+        self.assertNotIn("hidden internal reviews", text)
+
     def test_review_list_hides_non_actionable_jit_noise_by_default(self):
         text = _format_review_list(
             [

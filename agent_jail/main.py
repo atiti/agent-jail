@@ -650,9 +650,11 @@ def _is_internal_review(review):
     tool = review.get("tool") or ""
     template = review.get("template") or ""
     raw = review.get("raw") or ""
+    if "--dangerously-bypass-approvals-and-sandbox" in raw or "--allow-dangerously-skip-permissions" in raw:
+        return False
     if tool in {"codex", "claude"}:
         return True
-    if tool == "node" and ("codex" in raw or "approved-script" in template):
+    if tool == "node" and ("codex" in raw or "claude" in raw or "approved-script" in template):
         return True
     if ".agent-jail/.codex/.tmp/plugins" in raw or ".agent-jail/.codex/.tmp/plugins" in template:
         return True
