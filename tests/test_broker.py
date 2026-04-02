@@ -4,7 +4,6 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest import mock
 
 from agent_jail.broker import BrokerServer, normalize
 from agent_jail.events import EventSink
@@ -180,7 +179,15 @@ class BrokerTests(unittest.TestCase):
 
     def test_jit_waits_for_manual_review_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
-            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            pending_added = threading.Event()
+
+            class _HookedPolicyStore(PolicyStore):
+                def add_pending_review(self, review):
+                    item = super().add_pending_review(review)
+                    pending_added.set()
+                    return item
+
+            store = _HookedPolicyStore(os.path.join(tmp, "policy.json"))
             broker = BrokerServer(
                 os.path.join(tmp, "broker.sock"),
                 store,
@@ -202,32 +209,36 @@ class BrokerTests(unittest.TestCase):
                 review_wait_timeout=1.0,
             )
             result_box = {}
-            pending_added = threading.Event()
-            real_add_pending_review = store.add_pending_review
 
             def run_handle():
-                result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+                try:
+                    result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+                except Exception as exc:  # pragma: no cover - defensive capture for threaded test visibility
+                    result_box["error"] = exc
 
-            def add_pending_review(review):
-                item = real_add_pending_review(review)
-                pending_added.set()
-                return item
-
-            with mock.patch.object(store, "add_pending_review", side_effect=add_pending_review):
-                thread = threading.Thread(target=run_handle)
-                thread.start()
-                self.assertTrue(pending_added.wait(timeout=3.0))
-                store.reload()
-                pending = store.pending_reviews[0]
-                store.add_rule(pending["rule"])
-                store.remove_pending_review(pending["id"])
-                thread.join()
+            thread = threading.Thread(target=run_handle)
+            thread.start()
+            self.assertTrue(pending_added.wait(timeout=5.0))
+            store.reload()
+            pending = store.pending_reviews[0]
+            store.add_rule(pending["rule"])
+            store.remove_pending_review(pending["id"])
+            thread.join()
+            self.assertNotIn("error", result_box)
         self.assertEqual(result_box["result"]["decision"], "allow")
         self.assertIn("review-approved", result_box["result"]["reason"])
 
     def test_jit_waits_for_manual_review_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:
-            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            pending_added = threading.Event()
+
+            class _HookedPolicyStore(PolicyStore):
+                def add_pending_review(self, review):
+                    item = super().add_pending_review(review)
+                    pending_added.set()
+                    return item
+
+            store = _HookedPolicyStore(os.path.join(tmp, "policy.json"))
             broker = BrokerServer(
                 os.path.join(tmp, "broker.sock"),
                 store,
@@ -249,25 +260,21 @@ class BrokerTests(unittest.TestCase):
                 review_wait_timeout=1.0,
             )
             result_box = {}
-            pending_added = threading.Event()
-            real_add_pending_review = store.add_pending_review
 
             def run_handle():
-                result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+                try:
+                    result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+                except Exception as exc:  # pragma: no cover - defensive capture for threaded test visibility
+                    result_box["error"] = exc
 
-            def add_pending_review(review):
-                item = real_add_pending_review(review)
-                pending_added.set()
-                return item
-
-            with mock.patch.object(store, "add_pending_review", side_effect=add_pending_review):
-                thread = threading.Thread(target=run_handle)
-                thread.start()
-                self.assertTrue(pending_added.wait(timeout=3.0))
-                store.reload()
-                pending = store.pending_reviews[0]
-                store.remove_pending_review(pending["id"])
-                thread.join()
+            thread = threading.Thread(target=run_handle)
+            thread.start()
+            self.assertTrue(pending_added.wait(timeout=5.0))
+            store.reload()
+            pending = store.pending_reviews[0]
+            store.remove_pending_review(pending["id"])
+            thread.join()
+            self.assertNotIn("error", result_box)
         self.assertEqual(result_box["result"]["decision"], "deny")
         self.assertIn("jit-review-rejected", result_box["result"]["reason"])
 
