@@ -62,3 +62,18 @@ class EventTests(unittest.TestCase):
         rendered = render_event({"action": "info", "category": "jit", "raw": "tree -L 2"}, color=True)
         self.assertIn("\033[34m[INFO]\033[0m", rendered)
         self.assertIn("\033[33m[jit]\033[0m", rendered)
+
+    def test_render_event_includes_capability_phase_and_reason(self):
+        rendered = render_event(
+            {
+                "action": "deny",
+                "category": "capability",
+                "raw": "bash ./scripts/unifi-api.sh wifi-health --format text",
+                "phase": "exit",
+                "reason": "returncode=1",
+            }
+        )
+        self.assertEqual(
+            rendered,
+            "[DENY][capability][exit] bash ./scripts/unifi-api.sh wifi-health --format text (returncode=1)",
+        )

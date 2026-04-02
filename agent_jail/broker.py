@@ -477,7 +477,7 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
         }
     if chosen:
         names = ", ".join(capabilities)
-        rerun = shlex.join(["agent-jail-cap", "delegate", chosen.get("name"), *argv])
+        rerun = _secret_delegate_rerun_command(chosen.get("name"), argv, analysis, script_path)
         return {
             "risk": "high",
             "reason": f"secret capability required: {names}; rerun: {rerun}",
@@ -508,6 +508,21 @@ def _derive_local_secret_delegate_name(script_path, capability):
     script_name = _sanitize_delegate_name_part(os.path.basename(script_path))
     capability_name = _sanitize_delegate_name_part(capability)
     return f"local-secret-{script_name}-{capability_name}"
+
+
+def _secret_delegate_rerun_argv(delegate_name, argv, analysis=None, script_path=None):
+    command = list(argv or [])
+    source_path = script_path or ((analysis or {}).get("source_path") if analysis else None)
+    if source_path and command:
+        tool = os.path.basename(command[0])
+        if tool in {"sh", "bash", "zsh"} and source_path in command[1:]:
+            source_index = command.index(source_path)
+            command = [source_path, *command[source_index + 1 :]]
+    return ["agent-jail-cap", "delegate", delegate_name, *command]
+
+
+def _secret_delegate_rerun_command(delegate_name, argv, analysis=None, script_path=None):
+    return shlex.join(_secret_delegate_rerun_argv(delegate_name, argv, analysis=analysis, script_path=script_path))
 
 
 def classify(intent, argv, delegates=None, context=None, secrets=None):
@@ -826,7 +841,8 @@ class BrokerServer:
                     "reason": (
                         f"secret-delegate-review-required[{pending['id']}]: "
                         f"approve to add {pending['delegate']['name']} for {pending['script_path']}; "
-                        f"rerun after approval: {shlex.join(['agent-jail-cap', 'delegate', pending['delegate']['name'], *effective_argv])}"
+                        f"rerun after approval: "
+                        f"{_secret_delegate_rerun_command(pending['delegate']['name'], effective_argv, analysis=analysis, script_path=pending['script_path'])}"
                     ),
                 }
             self._log(
@@ -902,7 +918,7 @@ class BrokerServer:
             )
             return {"decision": "deny", "reason": verdict["reason"]}
         template = event_template(intent, verdict)
-        if self.jit_engine.should_attempt(verdict):
+        if self.jit_engine.should_attempt(verdict) and analysis.get("template") != "shell syntax check":
             self._log(
                 "INFO",
                 raw,

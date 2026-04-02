@@ -97,6 +97,8 @@ def render_event(event, color=False):
     category = event.get("category")
     session = event.get("session")
     raw = event.get("raw") or event.get("message") or ""
+    phase = event.get("phase")
+    reason = event.get("reason")
     timestamp = event.get("timestamp", "")
     prefix = ""
     if timestamp:
@@ -106,11 +108,15 @@ def render_event(event, color=False):
         if color:
             action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
             category_text = f"{CATEGORY_COLORS.get(category, '')}[{category}]{ANSI_RESET}"
+            phase_text = f"{ANSI_DIM}[{phase}]{ANSI_RESET}" if phase else ""
             session_text = f"{ANSI_DIM}[{session}]{ANSI_RESET}" if session else ""
             prefix_text = f"{ANSI_DIM}{prefix}{ANSI_RESET}" if prefix else ""
-            return f"{prefix_text}{action_text}{category_text}{session_text} {raw}"
+            suffix = f" ({reason})" if reason and category == "capability" and phase else ""
+            return f"{prefix_text}{action_text}{category_text}{phase_text}{session_text} {raw}{suffix}"
+        phase_text = f"[{phase}]" if phase else ""
         session_text = f"[{session}]" if session else ""
-        return f"{prefix}[{action}][{category}]{session_text} {raw}"
+        suffix = f" ({reason})" if reason and category == "capability" and phase else ""
+        return f"{prefix}[{action}][{category}]{phase_text}{session_text} {raw}{suffix}"
     if color:
         action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
         session_text = f"{ANSI_DIM}[{session}]{ANSI_RESET}" if session else ""

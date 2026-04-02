@@ -517,6 +517,50 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(review["delegate"]["allowed_tools"], [script_path])
         self.assertEqual(review["delegate"]["allowed_secrets"], ["age_key_file"])
 
+    def test_secret_capability_guidance_prefers_script_path_over_bash_wrapper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = os.path.join(tmp, "wifi-health.sh")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nprintf '%s\\n' \"$AGE_KEY_FILE\"\n")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.keys.txt"}}},
+                delegates=[
+                    {
+                        "name": "local-secrets",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": [script_path],
+                        "allowed_secrets": ["age_key_file"],
+                    }
+                ],
+            )
+            result = broker.handle(
+                {"type": "exec", "argv": ["bash", script_path, "wifi-health"], "raw": f"bash {script_path} wifi-health", "cwd": tmp}
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn(f"rerun: agent-jail-cap delegate local-secrets {script_path} wifi-health", result["reason"])
+        self.assertNotIn("delegate local-secrets bash", result["reason"])
+
+    def test_shell_syntax_check_bypasses_jit_force_low_risk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = os.path.join(tmp, "wifi-health.sh")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nprintf '%s\\n' \"$AGE_KEY_FILE\"\n")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.keys.txt"}}},
+                llm_policy={"jit_enabled": True, "jit_force_low_risk": True},
+            )
+            result = broker.handle(
+                {"type": "exec", "argv": ["bash", "-n", script_path], "raw": f"bash -n {script_path}", "cwd": tmp}
+            )
+        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["reason"], "shell syntax check")
+
     def test_read_guard_denies_python_variable_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")
