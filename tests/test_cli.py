@@ -461,6 +461,17 @@ class CLITests(unittest.TestCase):
         self.assertEqual(env["SSL_CERT_FILE"], "/tmp/jail-cert.pem")
         self.assertNotIn("SSL_CERT_DIR", env)
 
+    def test_apply_target_env_profile_codex_without_proxy_prefers_native_trust(self):
+        from agent_jail.main import apply_target_env_profile
+
+        env = {
+            "SSL_CERT_FILE": "/tmp/jail-cert.pem",
+            "SSL_CERT_DIR": "/tmp/jail-certs",
+        }
+        apply_target_env_profile(env, ["/usr/local/bin/codex", "exec", "hi"], proxy_mode=None)
+        self.assertNotIn("SSL_CERT_FILE", env)
+        self.assertNotIn("SSL_CERT_DIR", env)
+
     def test_apply_target_env_profile_codex_http_native_clears_socks_and_all_cert_env(self):
         from agent_jail.main import apply_target_env_profile
 
