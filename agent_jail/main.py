@@ -21,6 +21,8 @@ from agent_jail.rule_suggestions import apply_suggestions, build_rule_suggestion
 from agent_jail.wrappers import write_wrappers
 
 DEFAULT_KILL_SWITCH = "/tmp/agent-jail.stop"
+DARWIN_SYSTEM_ROOT_KEYCHAIN = "/System/Library/Keychains/SystemRootCertificates.keychain"
+DARWIN_SYSTEM_ROOT_PEM_NAME = "macos-system-roots.pem"
 
 
 def resolve_python():
@@ -87,7 +89,9 @@ def apply_target_env_profile(env, target_argv, proxy_mode=None):
         env.pop(key, None)
     env.update(preserved)
     if target_name == "codex" and proxy_mode is None:
-        env.pop("SSL_CERT_FILE", None)
+        system_cert_file = env.get("AGENT_JAIL_SYSTEM_CERT_FILE")
+        if env.get("SSL_CERT_FILE") != system_cert_file:
+            env.pop("SSL_CERT_FILE", None)
         env.pop("SSL_CERT_DIR", None)
     if target_name == "codex" and proxy_mode in {"codex-http", "codex-http-native"}:
         for key in ("ALL_PROXY", "SOCKS_PROXY", "SSL_CERT_DIR"):
@@ -118,6 +122,36 @@ def discover_cert_env():
     if paths.capath and os.path.exists(paths.capath):
         updates["SSL_CERT_DIR"] = paths.capath
     return updates
+
+
+def discover_macos_system_cert_env(session_dir):
+    if sys.platform != "darwin" or not session_dir:
+        return {}
+    try:
+        os.makedirs(session_dir, exist_ok=True)
+    except OSError:
+        return {}
+    pem_path = os.path.join(session_dir, DARWIN_SYSTEM_ROOT_PEM_NAME)
+    result = subprocess.run(
+        [
+            "/usr/bin/security",
+            "find-certificate",
+            "-a",
+            "-p",
+            DARWIN_SYSTEM_ROOT_KEYCHAIN,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return {}
+    with open(pem_path, "w", encoding="utf-8") as handle:
+        handle.write(result.stdout)
+    return {
+        "SSL_CERT_FILE": pem_path,
+        "AGENT_JAIL_SYSTEM_CERT_FILE": pem_path,
+    }
 
 
 def discover_tty_env():
@@ -706,7 +740,10 @@ def run(argv=None):
                 "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),
             }
         )
-        for key, value in discover_cert_env().items():
+        cert_env = discover_macos_system_cert_env(tmp)
+        if not cert_env:
+            cert_env = discover_cert_env()
+        for key, value in cert_env.items():
             env.setdefault(key, value)
         for key, value in discover_tty_env().items():
             env.setdefault(key, value)

@@ -472,6 +472,18 @@ class CLITests(unittest.TestCase):
         self.assertNotIn("SSL_CERT_FILE", env)
         self.assertNotIn("SSL_CERT_DIR", env)
 
+    def test_apply_target_env_profile_codex_without_proxy_keeps_generated_system_roots(self):
+        from agent_jail.main import apply_target_env_profile
+
+        env = {
+            "SSL_CERT_FILE": "/tmp/macos-system-roots.pem",
+            "AGENT_JAIL_SYSTEM_CERT_FILE": "/tmp/macos-system-roots.pem",
+            "SSL_CERT_DIR": "/tmp/jail-certs",
+        }
+        apply_target_env_profile(env, ["/usr/local/bin/codex", "exec", "hi"], proxy_mode=None)
+        self.assertEqual(env["SSL_CERT_FILE"], "/tmp/macos-system-roots.pem")
+        self.assertNotIn("SSL_CERT_DIR", env)
+
     def test_apply_target_env_profile_codex_http_native_clears_socks_and_all_cert_env(self):
         from agent_jail.main import apply_target_env_profile
 
@@ -934,6 +946,40 @@ class CLITests(unittest.TestCase):
             ):
                 env = discover_cert_env()
         self.assertEqual(env, {"SSL_CERT_FILE": cafile})
+
+    def test_discover_macos_system_cert_env_exports_system_roots_pem(self):
+        from agent_jail.main import DARWIN_SYSTEM_ROOT_PEM_NAME, discover_macos_system_cert_env
+
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n",
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "agent_jail.main.sys.platform", "darwin"
+        ), mock.patch("agent_jail.main.subprocess.run", return_value=completed):
+            env = discover_macos_system_cert_env(tmp)
+            pem_path = os.path.join(tmp, DARWIN_SYSTEM_ROOT_PEM_NAME)
+            self.assertEqual(
+                env,
+                {
+                    "SSL_CERT_FILE": pem_path,
+                    "AGENT_JAIL_SYSTEM_CERT_FILE": pem_path,
+                },
+            )
+            with open(pem_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), completed.stdout)
+
+    def test_discover_macos_system_cert_env_ignores_empty_export(self):
+        from agent_jail.main import discover_macos_system_cert_env
+
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "agent_jail.main.sys.platform", "darwin"
+        ), mock.patch("agent_jail.main.subprocess.run", return_value=completed):
+            env = discover_macos_system_cert_env(tmp)
+        self.assertEqual(env, {})
 
     def test_discover_tty_env_collects_ctermid_and_ttynames(self):
         from agent_jail.main import discover_tty_env
