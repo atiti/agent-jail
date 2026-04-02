@@ -57,3 +57,8 @@ class EventTests(unittest.TestCase):
         rendered = render_event({"action": "deny", "category": "network", "raw": "http CONNECT example.com:443"}, color=True)
         self.assertIn("\033[31m[DENY]\033[0m", rendered)
         self.assertIn("[network]", rendered)
+
+    def test_render_event_colors_jit_info(self):
+        rendered = render_event({"action": "info", "category": "jit", "raw": "tree -L 2"}, color=True)
+        self.assertIn("\033[34m[INFO]\033[0m", rendered)
+        self.assertIn("\033[33m[jit]\033[0m", rendered)

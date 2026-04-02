@@ -35,9 +35,13 @@ class JITRuleEngine:
         key = (intent.get("tool"), intent.get("action"), template)
         cached = self.cache.get(key)
         if cached is not None:
-            return cached
+            result = dict(cached)
+            result["cached"] = True
+            return result
         result = self._decide_remote(intent, raw, verdict, template, context or {})
         self.cache[key] = result
+        result = dict(result)
+        result["cached"] = False
         return result
 
     def _decide_remote(self, intent, raw, verdict, template, context):

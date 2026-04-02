@@ -1,8 +1,10 @@
+import json
 import os
 import tempfile
 import unittest
 
 from agent_jail.broker import BrokerServer, normalize
+from agent_jail.events import EventSink
 from agent_jail.policy import PolicyStore
 
 
@@ -49,6 +51,39 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result["decision"], "allow")
         self.assertIn("jit-approved", result["reason"])
         self.assertTrue(store.match({"tool": "tree", "action": "exec"}))
+
+    def test_jit_emits_monitor_events_for_llm_evaluation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            log_path = os.path.join(tmp, "events.jsonl")
+            sink = EventSink(log_path, default_fields={"session": "session-test"})
+            sink.start()
+            try:
+                broker = BrokerServer(
+                    os.path.join(tmp, "broker.sock"),
+                    store,
+                    jit_engine=_StubJIT(
+                        {
+                            "decision_hint": "ask",
+                            "confidence": 0.4,
+                            "reason": "Unknown low-impact command.",
+                            "source": "stub_jit",
+                            "cached": False,
+                        }
+                    ),
+                    event_sink=sink,
+                )
+                result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+            finally:
+                sink.close()
+            with open(log_path, encoding="utf-8") as handle:
+                events = [json.loads(line) for line in handle]
+        self.assertEqual(result["decision"], "deny")
+        jit_events = [event for event in events if event.get("category") == "jit"]
+        self.assertEqual([event.get("phase") for event in jit_events], ["start", "result"])
+        self.assertEqual(jit_events[1].get("decision_hint"), "ask")
+        self.assertEqual(jit_events[1].get("source"), "stub_jit")
+        self.assertFalse(jit_events[1].get("cached"))
 
     def test_jit_ask_denies_unknown_general_command(self):
         with tempfile.TemporaryDirectory() as tmp:

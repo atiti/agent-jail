@@ -725,7 +725,35 @@ class BrokerServer:
             return {"decision": "deny", "reason": verdict["reason"]}
         template = event_template(intent, verdict)
         if self.jit_engine.should_attempt(verdict):
+            self._log(
+                "INFO",
+                raw,
+                "jit",
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=template,
+                risk="jit",
+                phase="start",
+                reason="llm policy evaluation",
+            )
             jit = self.jit_engine.decide(intent, raw, verdict, template, context=context)
+            self._log(
+                "INFO",
+                raw,
+                "jit",
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=template,
+                risk="jit",
+                phase="result",
+                reason=jit.get("reason"),
+                decision_hint=jit.get("decision_hint"),
+                confidence=jit.get("confidence"),
+                source=jit.get("source"),
+                cached=jit.get("cached", False),
+            )
             jit_config = getattr(self.jit_engine, "config", {}) or {}
             if (
                 jit.get("decision_hint") == "allow"
