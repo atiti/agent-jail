@@ -756,10 +756,14 @@ def run(argv=None):
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
         if args.proxy and args.proxy_commands_only:
-            env["AGENT_JAIL_SESSION_PROXY_ENV"] = json.dumps(session_proxy_env, sort_keys=True)
+            session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")
+            with open(session_proxy_env_path, "w", encoding="utf-8") as handle:
+                json.dump(session_proxy_env, handle, sort_keys=True)
             bootstrap_hops = 2 if args.target and os.path.basename(args.target[0]) == "codex" else 1
             env["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bootstrap_hops)
             for key in (
+                "AGENT_JAIL_HTTP_PROXY",
+                "AGENT_JAIL_SOCKS_PROXY",
                 "HTTP_PROXY",
                 "HTTPS_PROXY",
                 "ALL_PROXY",

@@ -73,6 +73,14 @@ def dispatch_main():
         raise SystemExit(126)
     real_binary = resolve_real_binary(command)
     session_proxy_env = os.environ.get("AGENT_JAIL_SESSION_PROXY_ENV")
+    session_dir = os.environ.get("AGENT_JAIL_SESSION_DIR", "")
+    session_proxy_env_file = os.path.join(session_dir, "session-proxy-env.json") if session_dir else ""
+    if not session_proxy_env and session_proxy_env_file:
+        try:
+            with open(session_proxy_env_file, "r", encoding="utf-8") as handle:
+                session_proxy_env = handle.read()
+        except OSError:
+            session_proxy_env = None
     bypass_hops = int(os.environ.get("AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS", "0") or "0")
     if bypass_hops > 0:
         os.environ["AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS"] = str(bypass_hops - 1)
