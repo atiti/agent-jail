@@ -105,6 +105,27 @@ def _delegate_executor_tools(delegates):
     return {os.path.basename(path) for path in _delegate_executor_paths(delegates)}
 
 
+def _jit_review_is_actionable(jit):
+    if jit.get("decision_hint") != "ask":
+        return False
+    confidence = jit.get("confidence")
+    try:
+        if confidence is not None and float(confidence) == 0.0:
+            return False
+    except (TypeError, ValueError):
+        pass
+    reason = (jit.get("reason") or "").lower()
+    if reason.startswith("jit provider unavailable:"):
+        return False
+    if reason.startswith("jit http error:"):
+        return False
+    if reason.startswith("jit request failed:"):
+        return False
+    if reason in {"jit response payload was not valid json", "jit response was not valid json"}:
+        return False
+    return True
+
+
 def _with_delegate_context(delegate, payload=None):
     item = dict(delegate or {})
     if payload and payload.get("cwd"):
@@ -876,6 +897,21 @@ class BrokerServer:
                     confidence=jit.get("confidence"),
                 )
                 return {"decision": "deny", "reason": f"jit-rejected: {jit.get('reason', 'unsafe command pattern')}"}
+            if not _jit_review_is_actionable(jit):
+                self._log(
+                    "DENY",
+                    raw,
+                    verdict.get("category"),
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    reason=jit.get("reason"),
+                    jit=True,
+                    confidence=jit.get("confidence"),
+                )
+                return {"decision": "deny", "reason": f"jit-unreviewable: {jit.get('reason', 'unable to evaluate command safely')}"}
             self._log(
                 "ASK",
                 raw,
@@ -899,6 +935,7 @@ class BrokerServer:
                     "reason": jit.get("reason", "unknown low-impact command"),
                     "confidence": jit.get("confidence"),
                     "source": jit.get("source"),
+                    "decision_hint": jit.get("decision_hint"),
                     "rule": _review_rule_with_template(jit.get("rule"), intent.get("template")),
                 }
             )

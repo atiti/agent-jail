@@ -621,6 +621,28 @@ def _is_internal_review(review):
     return False
 
 
+def _is_actionable_review(review):
+    confidence = review.get("confidence")
+    try:
+        confidence_value = float(confidence) if confidence is not None else None
+    except (TypeError, ValueError):
+        confidence_value = None
+    if confidence_value == 0.0:
+        return False
+    reason = (review.get("reason") or "").lower()
+    if reason.startswith("jit provider unavailable:"):
+        return False
+    if reason.startswith("jit http error:"):
+        return False
+    if reason.startswith("jit request failed:"):
+        return False
+    if reason in {"jit response payload was not valid json", "jit response was not valid json"}:
+        return False
+    if review.get("decision_hint") == "reject":
+        return False
+    return True
+
+
 def _review_sort_key(review):
     confidence = review.get("confidence")
     if confidence is None:
@@ -639,7 +661,7 @@ def _colorize(text, color, enabled):
 def _format_review_list(reviews, show_all=False, color=False):
     visible = sorted(reviews, key=_review_sort_key)
     if not show_all:
-        visible = [review for review in visible if not _is_internal_review(review)]
+        visible = [review for review in visible if _is_actionable_review(review) and not _is_internal_review(review)]
     hidden_count = len(reviews) - len(visible)
     lines = [f"pending: {len(reviews)}"]
     if not visible:

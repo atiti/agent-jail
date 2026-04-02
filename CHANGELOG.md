@@ -24,6 +24,7 @@
 - Added explicit `INFO[jit]` monitor events so `agent-jail monitor --follow` shows when the broker consults the LLM for low-risk command evaluation and what the returned decision hint/confidence/source was before the final allow/ask/deny event.
 - Changed `ASK` handling for low-risk JIT reviews to block the original command for up to five minutes while waiting for `agent-jail review approve|reject`, with explicit review wait/approved/rejected/timeout monitor events.
 - Improved `agent-jail review list` to surface actionable pending reviews first, show reason/confidence/source context, and hide internal tooling noise by default unless `--all` is used.
+- Tightened JIT review gating so provider failures, transport errors, explicit rejects, and zero-confidence asks are denied directly instead of being persisted as pending manual reviews.
 - Fixed the session-local `agent-jail-cap` launcher to embed the repo root directly instead of depending on `AGENT_JAIL_SOURCE_ROOT`, so delegated commands keep working even if that environment variable is missing in a child process.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.

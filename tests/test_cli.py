@@ -937,6 +937,25 @@ class CLITests(unittest.TestCase):
         self.assertNotIn("review-2", text)
         self.assertIn("hidden internal reviews: 1", text)
 
+    def test_review_list_hides_non_actionable_jit_noise_by_default(self):
+        text = _format_review_list(
+            [
+                {
+                    "id": "review-1",
+                    "tool": "curl",
+                    "action": "exec",
+                    "template": "curl *",
+                    "reason": "jit provider unavailable: missing azure openai config",
+                    "confidence": 0.0,
+                    "source": "jit",
+                },
+            ],
+            show_all=False,
+            color=False,
+        )
+        self.assertIn("no actionable pending reviews", text)
+        self.assertNotIn("review-1", text)
+
     def test_review_list_can_show_internal_noise_with_all(self):
         text = _format_review_list(
             [

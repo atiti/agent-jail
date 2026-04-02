@@ -108,6 +108,46 @@ class BrokerTests(unittest.TestCase):
         self.assertIn("jit-review-timeout", result["reason"])
         self.assertEqual(len(store.pending_reviews), 1)
 
+    def test_jit_provider_failures_do_not_create_pending_reviews(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.0,
+                        "reason": "jit provider unavailable: missing azure openai config",
+                    }
+                ),
+                review_wait_timeout=0.2,
+            )
+            result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("jit-unreviewable", result["reason"])
+        self.assertEqual(len(store.pending_reviews), 0)
+
+    def test_jit_zero_confidence_ask_does_not_create_pending_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.0,
+                        "reason": "unknown low-impact command",
+                    }
+                ),
+                review_wait_timeout=0.2,
+            )
+            result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("jit-unreviewable", result["reason"])
+        self.assertEqual(len(store.pending_reviews), 0)
+
     def test_jit_pending_reviews_are_deduplicated_by_template(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = PolicyStore(os.path.join(tmp, "policy.json"))
