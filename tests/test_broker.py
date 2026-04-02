@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from agent_jail.broker import BrokerServer, normalize
 from agent_jail.events import EventSink
@@ -201,22 +202,26 @@ class BrokerTests(unittest.TestCase):
                 review_wait_timeout=1.0,
             )
             result_box = {}
+            pending_added = threading.Event()
+            real_add_pending_review = store.add_pending_review
 
             def run_handle():
                 result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
 
-            thread = threading.Thread(target=run_handle)
-            thread.start()
-            for _ in range(20):
+            def add_pending_review(review):
+                item = real_add_pending_review(review)
+                pending_added.set()
+                return item
+
+            with mock.patch.object(store, "add_pending_review", side_effect=add_pending_review):
+                thread = threading.Thread(target=run_handle)
+                thread.start()
+                self.assertTrue(pending_added.wait(timeout=3.0))
                 store.reload()
-                if store.pending_reviews:
-                    break
-                time.sleep(0.05)
-            self.assertTrue(store.pending_reviews)
-            pending = store.pending_reviews[0]
-            store.add_rule(pending["rule"])
-            store.remove_pending_review(pending["id"])
-            thread.join()
+                pending = store.pending_reviews[0]
+                store.add_rule(pending["rule"])
+                store.remove_pending_review(pending["id"])
+                thread.join()
         self.assertEqual(result_box["result"]["decision"], "allow")
         self.assertIn("review-approved", result_box["result"]["reason"])
 
@@ -244,20 +249,25 @@ class BrokerTests(unittest.TestCase):
                 review_wait_timeout=1.0,
             )
             result_box = {}
+            pending_added = threading.Event()
+            real_add_pending_review = store.add_pending_review
 
             def run_handle():
                 result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
 
-            thread = threading.Thread(target=run_handle)
-            thread.start()
-            for _ in range(20):
+            def add_pending_review(review):
+                item = real_add_pending_review(review)
+                pending_added.set()
+                return item
+
+            with mock.patch.object(store, "add_pending_review", side_effect=add_pending_review):
+                thread = threading.Thread(target=run_handle)
+                thread.start()
+                self.assertTrue(pending_added.wait(timeout=3.0))
                 store.reload()
-                if store.pending_reviews:
-                    break
-                time.sleep(0.05)
-            self.assertTrue(store.pending_reviews)
-            store.remove_pending_review(store.pending_reviews[0]["id"])
-            thread.join()
+                pending = store.pending_reviews[0]
+                store.remove_pending_review(pending["id"])
+                thread.join()
         self.assertEqual(result_box["result"]["decision"], "deny")
         self.assertIn("jit-review-rejected", result_box["result"]["reason"])
 
