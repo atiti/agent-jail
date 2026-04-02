@@ -20,9 +20,10 @@ class _StreamHandler(StreamRequestHandler):
 
 
 class EventSink:
-    def __init__(self, log_path, socket_path=None):
+    def __init__(self, log_path, socket_path=None, default_fields=None):
         self.log_path = log_path
         self.socket_path = socket_path
+        self.default_fields = dict(default_fields or {})
         self._lock = threading.Lock()
         self._subscribers = set()
         self._server = None
@@ -60,7 +61,8 @@ class EventSink:
                 pass
 
     def emit(self, event):
-        payload = dict(event)
+        payload = dict(self.default_fields)
+        payload.update(event)
         payload.setdefault("timestamp", datetime.now(UTC).isoformat())
         line = json.dumps(payload, sort_keys=True)
         with open(self.log_path, "a", encoding="utf-8") as handle:
@@ -93,6 +95,7 @@ class EventSink:
 def render_event(event, color=False):
     action = event.get("action", "EVENT").upper()
     category = event.get("category")
+    session = event.get("session")
     raw = event.get("raw") or event.get("message") or ""
     timestamp = event.get("timestamp", "")
     prefix = ""
@@ -103,14 +106,18 @@ def render_event(event, color=False):
         if color:
             action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
             category_text = f"{CATEGORY_COLORS.get(category, '')}[{category}]{ANSI_RESET}"
+            session_text = f"{ANSI_DIM}[{session}]{ANSI_RESET}" if session else ""
             prefix_text = f"{ANSI_DIM}{prefix}{ANSI_RESET}" if prefix else ""
-            return f"{prefix_text}{action_text}{category_text} {raw}"
-        return f"{prefix}[{action}][{category}] {raw}"
+            return f"{prefix_text}{action_text}{category_text}{session_text} {raw}"
+        session_text = f"[{session}]" if session else ""
+        return f"{prefix}[{action}][{category}]{session_text} {raw}"
     if color:
         action_text = f"{ACTION_COLORS.get(action, '')}[{action}]{ANSI_RESET}"
+        session_text = f"{ANSI_DIM}[{session}]{ANSI_RESET}" if session else ""
         prefix_text = f"{ANSI_DIM}{prefix}{ANSI_RESET}" if prefix else ""
-        return f"{prefix_text}{action_text} {raw}"
-    return f"{prefix}[{action}] {raw}"
+        return f"{prefix_text}{action_text}{session_text} {raw}"
+    session_text = f"[{session}]" if session else ""
+    return f"{prefix}[{action}]{session_text} {raw}"
 
 
 def load_runtime_state(path):

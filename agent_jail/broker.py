@@ -856,7 +856,7 @@ class BrokerServer:
                 delegate["configured_secrets"] = self.secrets
             if delegate and delegate.get("mode") == "execute" and wfile is not None:
                 try:
-                    prepare_delegate_proxy(
+                    _, delegated, _ = prepare_delegate_proxy(
                         self.capabilities,
                         {**self.delegates, delegate_name: delegate},
                         delegate_name,
@@ -865,14 +865,33 @@ class BrokerServer:
                 except PermissionError as exc:
                     self._log("DENY", f"capability {name}", "capability", kind="capability", capability=name, reason=str(exc))
                     return {"decision": "deny", "reason": str(exc)}
-                self._log("ALLOW", f"capability {name}", "capability", kind="capability", capability=name)
+                delegated_raw = " ".join(delegated)
+                self._log(
+                    "ALLOW",
+                    delegated_raw,
+                    "capability",
+                    kind="capability",
+                    capability=name,
+                    delegate=delegate_name,
+                    phase="start",
+                )
                 self._write_frame(wfile, {"decision": "allow", "reason": "capability allowed", "stream": True})
-                stream_delegate_proxy(
+                _, returncode = stream_delegate_proxy(
                     self.capabilities,
                     {**self.delegates, delegate_name: delegate},
                     delegate_name,
                     payload.get("command", []),
                     lambda frame: self._write_frame(wfile, frame),
+                )
+                self._log(
+                    "ALLOW" if returncode == 0 else "DENY",
+                    delegated_raw,
+                    "capability",
+                    kind="capability",
+                    capability=name,
+                    delegate=delegate_name,
+                    phase="exit",
+                    reason=f"returncode={returncode}",
                 )
                 return None
             result = run_delegate_proxy(self.capabilities, {**self.delegates, delegate_name: delegate}, delegate_name, payload.get("command", []))
@@ -886,7 +905,12 @@ class BrokerServer:
         return {"decision": "allow", "reason": "capability allowed", "result": result}
 
     def _log(self, tag, raw, category=None, **extra):
-        if tag == "ALLOW" and extra.get("kind") == "capability" and extra.get("capability") == "delegate":
+        if (
+            tag == "ALLOW"
+            and extra.get("kind") == "capability"
+            and extra.get("capability") == "delegate"
+            and raw == "capability delegate"
+        ):
             return
         if raw.startswith("dirname ") or raw.startswith("dirname -- "):
             if ".agent-jail/bin/agent-jail-cap" in raw:

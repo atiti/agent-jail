@@ -42,6 +42,12 @@ class EventTests(unittest.TestCase):
             "[ALLOW][read-only] git status",
         )
 
+    def test_render_event_includes_session_when_present(self):
+        self.assertEqual(
+            render_event({"action": "allow", "category": "read-only", "raw": "git status", "session": "session-123"}),
+            "[ALLOW][read-only][session-123] git status",
+        )
+
     def test_render_event_can_use_color(self):
         rendered = render_event({"action": "allow", "category": "read-only", "raw": "git status"}, color=True)
         self.assertIn("\033[32m[ALLOW]\033[0m", rendered)

@@ -709,6 +709,52 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("[ALLOW][read-only] git status", proc.stdout)
 
+    def test_monitor_reads_all_active_session_logs_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            events_dir = os.path.join(tmp, "events")
+            runtimes_dir = os.path.join(tmp, "runtimes")
+            os.makedirs(events_dir)
+            os.makedirs(runtimes_dir)
+            log_a = os.path.join(events_dir, "session-a.jsonl")
+            log_b = os.path.join(events_dir, "session-b.jsonl")
+            with open(log_a, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"read-only","raw":"git status","session":"session-a"}\n')
+            with open(log_b, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"general","raw":"tree -L 2","session":"session-b"}\n')
+            with open(os.path.join(runtimes_dir, "session-a.json"), "w", encoding="utf-8") as handle:
+                json.dump({"active": True, "events_log": log_a, "events_socket": None, "session": "session-a"}, handle)
+            with open(os.path.join(runtimes_dir, "session-b.json"), "w", encoding="utf-8") as handle:
+                json.dump({"active": True, "events_log": log_b, "events_socket": None, "session": "session-b"}, handle)
+            proc = self.run_cli("monitor", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("[ALLOW][read-only][session-a] git status", proc.stdout)
+        self.assertIn("[ALLOW][general][session-b] tree -L 2", proc.stdout)
+
+    def test_monitor_can_filter_specific_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            events_dir = os.path.join(tmp, "events")
+            runtimes_dir = os.path.join(tmp, "runtimes")
+            os.makedirs(events_dir)
+            os.makedirs(runtimes_dir)
+            log_a = os.path.join(events_dir, "session-a.jsonl")
+            log_b = os.path.join(events_dir, "session-b.jsonl")
+            with open(log_a, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"read-only","raw":"git status","session":"session-a"}\n')
+            with open(log_b, "w", encoding="utf-8") as handle:
+                handle.write('{"action":"allow","category":"general","raw":"tree -L 2","session":"session-b"}\n')
+            with open(os.path.join(runtimes_dir, "session-a.json"), "w", encoding="utf-8") as handle:
+                json.dump({"active": True, "events_log": log_a, "events_socket": None, "session": "session-a"}, handle)
+            with open(os.path.join(runtimes_dir, "session-b.json"), "w", encoding="utf-8") as handle:
+                json.dump({"active": True, "events_log": log_b, "events_socket": None, "session": "session-b"}, handle)
+            proc = self.run_cli("monitor", "--session", "session-b", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("git status", proc.stdout)
+        self.assertIn("[ALLOW][general][session-b] tree -L 2", proc.stdout)
+
     def test_monitor_json_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "events.jsonl")

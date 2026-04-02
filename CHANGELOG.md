@@ -20,6 +20,7 @@
 - Added `scripts/reqwest_tls_probe.py` to reproduce `reqwest` TLS behavior outside Codex with selectable TLS backends, cert sources, and optional `sandbox-exec` runtime wrapping.
 - Fixed macOS `sandbox-exec` writable-path generation for Security.framework native trust by allowing `com.apple.SecurityServer`, adding `/private/...` realpath aliases, and including the Darwin user cache `.../C` directory derived from temp/session paths.
 - Changed `agent-jail run` to enable proxying by default, with `--no-proxy` available as an explicit escape hatch and config support to persist the run default.
+- Changed `agent-jail monitor` to read all active sessions by default, added `--session` filtering, tagged events with the agent-jail session id, and started emitting delegate start/exit lifecycle events instead of hiding delegated command execution entirely.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.

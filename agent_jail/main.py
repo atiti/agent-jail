@@ -259,6 +259,7 @@ def parse_args(argv=None):
     monitor.add_argument("--json", action="store_true")
     monitor.add_argument("--log")
     monitor.add_argument("--socket")
+    monitor.add_argument("--session", action="append", default=[])
     suggest = sub.add_parser("suggest-rules")
     suggest.add_argument("--json", action="store_true")
     suggest.add_argument("--apply-low-risk", action="store_true")
@@ -301,6 +302,32 @@ def runtime_state_path(home):
     return os.path.join(home, "runtime.json")
 
 
+def runtime_states_dir(home):
+    return os.path.join(home, "runtimes")
+
+
+def runtime_state_record_path(home, session):
+    return os.path.join(runtime_states_dir(home), f"{session}.json")
+
+
+def list_runtime_states(home):
+    states = []
+    directory = runtime_states_dir(home)
+    if not os.path.isdir(directory):
+        return states
+    for entry in sorted(os.listdir(directory)):
+        if not entry.endswith(".json"):
+            continue
+        path = os.path.join(directory, entry)
+        try:
+            state = load_runtime_state(path)
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+        state.setdefault("session", entry[:-5])
+        states.append(state)
+    return states
+
+
 def _print_event(event, json_output=False):
     if json_output:
         print(json.dumps(event, sort_keys=True), flush=True)
@@ -326,25 +353,59 @@ def _tail_log_from_offset(log_path, offset, json_output=False):
     return offset
 
 
+def _selected_runtime_states(home, session_filters=None):
+    states = list_runtime_states(home)
+    wanted = set(session_filters or [])
+    if wanted:
+        selected = [state for state in states if state.get("session") in wanted]
+        return sorted(selected, key=lambda item: item.get("session", ""))
+    active = [state for state in states if state.get("active")]
+    if active:
+        return sorted(active, key=lambda item: item.get("session", ""))
+    try:
+        state = load_runtime_state(runtime_state_path(home))
+    except FileNotFoundError:
+        return []
+    if state:
+        state.setdefault("session", state.get("session", "latest"))
+        return [state]
+    return []
+
+
 def monitor_events(args):
     home = ensure_home()
-    state = {}
-    state_path = runtime_state_path(home)
     if args.log or args.socket:
         log_path = os.path.abspath(os.path.expanduser(args.log)) if args.log else None
         socket_path = os.path.abspath(os.path.expanduser(args.socket)) if args.socket else None
     else:
-        try:
-            state = load_runtime_state(state_path)
-        except FileNotFoundError:
-            print("agent-jail monitor: no runtime state found", file=sys.stderr)
+        states = _selected_runtime_states(home, session_filters=args.session)
+        if not states:
+            print("agent-jail monitor: no matching runtime state found", file=sys.stderr)
             return 2
-        log_path = state.get("events_log")
-        socket_path = state.get("events_socket")
+        log_path = None
+        socket_path = None
     if not log_path:
-        print("agent-jail monitor: no event log configured", file=sys.stderr)
-        return 2
-    if os.path.exists(log_path):
+        if args.log or args.socket:
+            print("agent-jail monitor: no event log configured", file=sys.stderr)
+            return 2
+        log_offsets = {}
+        for state in states:
+            state_log = state.get("events_log")
+            if not state_log:
+                continue
+            log_offsets[state_log] = 0
+            if os.path.exists(state_log):
+                with open(state_log, encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        _print_event(json.loads(line), json_output=args.json)
+                log_offsets[state_log] = os.path.getsize(state_log)
+        if not log_offsets:
+            print("agent-jail monitor: no event log configured", file=sys.stderr)
+            return 2
+    elif os.path.exists(log_path):
         with open(log_path, encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -362,26 +423,16 @@ def monitor_events(args):
         while True:
             offset = _tail_log_from_offset(log_path, offset, json_output=args.json)
             time.sleep(0.1)
-
-    seen_socket = socket_path
-    offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
     while True:
-        try:
-            state = load_runtime_state(state_path)
-        except FileNotFoundError:
-            state = {}
-        current_log = state.get("events_log") or log_path
-        current_socket = state.get("events_socket")
-        if current_log != log_path:
-            log_path = current_log
-            offset = 0
-            seen_socket = None
-        offset = _tail_log_from_offset(log_path, offset, json_output=args.json)
-        if current_socket and current_socket != seen_socket and os.path.exists(current_socket):
-            seen_socket = current_socket
-            for event in stream_event_socket(current_socket):
-                _print_event(event, json_output=args.json)
-            continue
+        current_states = _selected_runtime_states(home, session_filters=args.session)
+        current_logs = {
+            state.get("events_log")
+            for state in current_states
+            if state.get("events_log")
+        }
+        for current_log in sorted(current_logs):
+            offset = log_offsets.get(current_log, 0)
+            log_offsets[current_log] = _tail_log_from_offset(current_log, offset, json_output=args.json)
         time.sleep(0.1)
 
 
@@ -656,11 +707,13 @@ def run(argv=None):
         wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
         sock_path = os.path.join(tmp, "broker.sock")
         event_socket_path = os.path.join(tmp, "events.sock")
+        runtime_session = f"session-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
         event_log_path = os.path.join(
             home,
             "events",
-            f"session-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}.jsonl",
+            f"{runtime_session}.jsonl",
         )
+        session_state_path = runtime_state_record_path(home, runtime_session)
         store = PolicyStore(os.path.join(home, "policy.json"))
         delegate_names = set(run_defaults.get("allow_delegates", []))
         delegate_names.update(args.allow_delegate or [])
@@ -685,19 +738,19 @@ def run(argv=None):
             browser_automation=args.allow_browser,
             direct_secret_env=args.direct_secret_env,
         )
-        event_sink = EventSink(event_log_path, socket_path=event_socket_path)
+        event_sink = EventSink(event_log_path, socket_path=event_socket_path, default_fields={"session": runtime_session})
         event_sink.start()
-        write_runtime_state(
-            runtime_state_path(home),
-            {
-                "active": True,
-                "cwd": os.getcwd(),
-                "events_log": event_log_path,
-                "events_socket": event_socket_path,
-                "pid": os.getpid(),
-                "started_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        runtime_payload = {
+            "active": True,
+            "cwd": os.getcwd(),
+            "events_log": event_log_path,
+            "events_socket": event_socket_path,
+            "pid": os.getpid(),
+            "session": runtime_session,
+            "started_at": datetime.now(UTC).isoformat(),
+        }
+        write_runtime_state(runtime_state_path(home), runtime_payload)
+        write_runtime_state(session_state_path, runtime_payload)
         broker = BrokerServer(
             sock_path,
             store,
@@ -883,17 +936,18 @@ def run(argv=None):
                 socks_proxy_server.server_close()
             broker.close()
             event_sink.close()
-            write_runtime_state(
-                runtime_state_path(home),
-                {
-                    "active": False,
-                    "cwd": os.getcwd(),
-                    "events_log": event_log_path,
-                    "events_socket": None,
-                    "ended_at": datetime.now(UTC).isoformat(),
-                    "pid": os.getpid(),
-                },
-            )
+            final_payload = {
+                "active": False,
+                "cwd": os.getcwd(),
+                "events_log": event_log_path,
+                "events_socket": None,
+                "ended_at": datetime.now(UTC).isoformat(),
+                "pid": os.getpid(),
+                "session": runtime_session,
+                "started_at": runtime_payload["started_at"],
+            }
+            write_runtime_state(runtime_state_path(home), final_payload)
+            write_runtime_state(session_state_path, final_payload)
 
 
 def main(argv=None):

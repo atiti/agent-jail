@@ -7,6 +7,7 @@ import threading
 import unittest
 
 from agent_jail.broker import BrokerServer
+from agent_jail.events import EventSink
 from agent_jail.policy import PolicyStore
 
 
@@ -155,3 +156,43 @@ class CapabilityCLITests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("agent-jail-cap denied", proc.stderr)
         self.assertIn("does not allow tool python3", proc.stderr)
+
+    def test_delegate_execute_emits_lifecycle_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            log_path = os.path.join(tmp, "events.jsonl")
+            script_path = os.path.join(tmp, "delegate-exec")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\necho delegated-out\nexit 0\n")
+            os.chmod(script_path, 0o755)
+            sink = EventSink(log_path, default_fields={"session": "session-test"})
+            sink.start()
+            self.addCleanup(sink.close)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(
+                sock_path,
+                store,
+                capabilities={"delegate": True, "delegates": ["ops"]},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": script_path,
+                        "allowed_tools": ["opsctl"],
+                        "strip_tool_name": True,
+                        "mode": "execute",
+                    }
+                ],
+                event_sink=sink,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+            env = os.environ.copy()
+            env["AGENT_JAIL_SOCKET"] = sock_path
+            proc = self.run_cap("delegate", "ops", "opsctl", "status", env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log_path, encoding="utf-8") as handle:
+                events = [json.loads(line) for line in handle]
+        phases = [(event.get("phase"), event.get("action"), event.get("delegate")) for event in events if event.get("capability") == "delegate"]
+        self.assertIn(("start", "allow", "ops"), phases)
+        self.assertIn(("exit", "allow", "ops"), phases)

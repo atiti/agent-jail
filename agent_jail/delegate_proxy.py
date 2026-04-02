@@ -155,3 +155,4 @@ def stream_delegate_proxy(capabilities, delegates, name, command, write_frame):
     for thread in threads:
         thread.join()
     write_frame({"type": "exit", "returncode": returncode})
+    return delegated, returncode
