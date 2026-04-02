@@ -73,6 +73,7 @@ class BackendTests(unittest.TestCase):
         self.assertIn('.env', profile)
         self.assertIn('/Users/example/build/', profile)
         self.assertIn('/secrets/', profile)
+        self.assertIn("(allow file-map-executable)", profile)
         self.assertIn('(allow file-ioctl', profile)
         self.assertIn('(regex #"^/dev/tty.*")', profile)
         self.assertIn('(literal "/usr/bin/ssh")', profile)

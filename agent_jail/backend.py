@@ -154,6 +154,7 @@ def build_sandbox_exec_profile(cwd, env):
         [
         ")",
         "(allow file-read*)",
+        "(allow file-map-executable)",
         "(allow file-ioctl",
         f'    (regex #"{DARWIN_TTY_IOCTL_REGEX}")',
         ")",
