@@ -232,7 +232,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog="agent-jail")
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run")
-    run.add_argument("--proxy", action="store_true")
+    run.add_argument("--proxy", dest="proxy", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--proxy-commands-only", action="store_true")
     run.add_argument(
         "--proxy-mode",
@@ -279,6 +279,7 @@ def parse_args(argv=None):
     config_set = config_sub.add_parser("set-defaults")
     config_set.add_argument("--read-only-root", action="append", default=[])
     config_set.add_argument("--write-root", action="append", default=[])
+    config_set.add_argument("--proxy", dest="proxy", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-delegate", action="append", default=[])
     config_set.add_argument("--project-mode", choices=["cwd"], default=None)
@@ -571,6 +572,8 @@ def handle_config(args):
         run_defaults["read_only_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.read_only_root]
     if args.write_root:
         run_defaults["write_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.write_root]
+    if args.proxy is not None:
+        run_defaults["proxy"] = bool(args.proxy)
     if args.allow_ops is not None:
         run_defaults["allow_ops"] = bool(args.allow_ops)
     if args.allow_delegate:
@@ -646,6 +649,7 @@ def run(argv=None):
         raise SystemExit(125)
     config = load_config()
     run_defaults = config.get("defaults", {}).get("run", {})
+    proxy_enabled = run_defaults.get("proxy", True) if args.proxy is None else bool(args.proxy)
     with tempfile.TemporaryDirectory(prefix="agent-jail-") as tmp:
         source_root = os.path.dirname(os.path.dirname(__file__))
         python_executable = resolve_python()
@@ -752,7 +756,7 @@ def run(argv=None):
         http_proxy_server = None
         socks_proxy_server = None
         session_proxy_env = {}
-        if args.proxy:
+        if proxy_enabled:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
             http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
             socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
@@ -795,7 +799,7 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
-        if args.proxy and args.proxy_commands_only:
+        if proxy_enabled and args.proxy_commands_only:
             session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")
             with open(session_proxy_env_path, "w", encoding="utf-8") as handle:
                 json.dump(session_proxy_env, handle, sort_keys=True)
@@ -819,7 +823,7 @@ def run(argv=None):
                 "NODE_EXTRA_CA_CERTS",
             ):
                 env.pop(key, None)
-        apply_target_env_profile(env, target_argv, proxy_mode=args.proxy_mode if args.proxy else None)
+        apply_target_env_profile(env, target_argv, proxy_mode=args.proxy_mode if proxy_enabled else None)
         if args.print_launch_env:
             print(
                 json.dumps(

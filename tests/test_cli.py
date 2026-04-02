@@ -156,6 +156,7 @@ class CLITests(unittest.TestCase):
                 "~/build",
                 "--write-root",
                 "~/workspace",
+                "--proxy",
                 "--allow-ops",
                 "--allow-delegate",
                 "local-secrets",
@@ -174,6 +175,7 @@ class CLITests(unittest.TestCase):
             config["defaults"]["run"]["write_roots"],
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
+        self.assertTrue(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")
@@ -215,6 +217,42 @@ class CLITests(unittest.TestCase):
         self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
         self.assertIsNone(values["ALL_PROXY"])
         self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+
+    def test_run_defaults_to_proxy_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertIsNone(values["ALL_PROXY"])
+        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+
+    def test_run_can_disable_default_proxy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                "--no-proxy",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            json.loads(proc.stdout.strip()),
+            {"ALL_PROXY": None, "HTTPS_PROXY": None, "HTTP_PROXY": None, "SOCKS_PROXY": None},
+        )
 
     def test_run_with_proxy_commands_only_keeps_parent_clean_and_proxies_wrapped_child(self):
         with tempfile.TemporaryDirectory() as tmp:

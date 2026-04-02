@@ -15,6 +15,7 @@ class ConfigTests(unittest.TestCase):
             {
                 "read_only_roots": [],
                 "write_roots": [],
+                "proxy": True,
                 "allow_ops": False,
                 "allow_delegates": [],
                 "project_mode": "",
@@ -97,6 +98,7 @@ class ConfigTests(unittest.TestCase):
                             "run": {
                                 "read_only_roots": ["~/build", "", 1],
                                 "write_roots": ["~/workspace"],
+                                "proxy": False,
                                 "allow_ops": True,
                                 "allow_delegates": ["local-secrets", "", 1],
                                 "project_mode": "cwd",
@@ -114,6 +116,7 @@ class ConfigTests(unittest.TestCase):
             config["defaults"]["run"]["write_roots"],
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
+        self.assertFalse(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
         self.assertEqual(config["defaults"]["run"]["project_mode"], "cwd")

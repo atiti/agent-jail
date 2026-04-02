@@ -54,6 +54,7 @@ def _normalize_run_defaults(values):
     return {
         "read_only_roots": _normalize_path_list(values.get("read_only_roots")),
         "write_roots": _normalize_path_list(values.get("write_roots")),
+        "proxy": bool(values.get("proxy", True)),
         "allow_ops": bool(values.get("allow_ops", False)),
         "allow_delegates": [str(item) for item in allow_delegates if isinstance(item, str) and item.strip()],
         "project_mode": project_mode,
