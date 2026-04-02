@@ -44,8 +44,8 @@ python3 agent-jail network test api.openai.com --port 443 --scheme tcp --default
 Start a session with proxying enabled:
 
 ```bash
-python3 agent-jail run --proxy codex --yolo
-python3 agent-jail run --proxy --deny-network-by-default claude
+python3 agent-jail run --proxy codex --dangerously-bypass-approvals-and-sandbox
+python3 agent-jail run --proxy --deny-network-by-default claude --allow-dangerously-skip-permissions
 ```
 
 Inside the session:

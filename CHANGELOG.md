@@ -36,6 +36,7 @@
 - Documented the macOS launcher split between top-level host binaries and wrapped child-process tooling, plus the intended use of config-driven `home_mounts` and narrow `git_ssh_hosts`.
 - Redacted secret-like env assignments and injected secret values from delegated command headers, capability lifecycle events, and non-stream delegate result payloads.
 - Truncated oversized human-readable monitor lines so `agent-jail monitor --follow` and delegate stderr headers do not keep dumping giant command strings into terminal scrollback.
+- Updated the public docs to show the exact non-interactive bypass flags for Codex (`--dangerously-bypass-approvals-and-sandbox`) and Claude (`--allow-dangerously-skip-permissions`) in `agent-jail run` examples.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Fixed a CI-only policy-store race by saving `policy.json` atomically, preventing concurrent review reloads from reading a truncated JSON file.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.

@@ -113,9 +113,11 @@ This keeps the agent useful without handing it your full host environment.
 Run an agent under `agent-jail`:
 
 ```bash
-python3 agent-jail run codex --yolo
-python3 agent-jail run claude
+python3 agent-jail run codex --dangerously-bypass-approvals-and-sandbox
+python3 agent-jail run claude --allow-dangerously-skip-permissions
 ```
+
+Those flags belong to the underlying agent CLIs, not to `agent-jail`. `agent-jail run ...` forwards them so the outer brokered session can stay in control while the inner agent runs non-interactively.
 
 Run with explicit project mapping and capability flags:
 
@@ -127,7 +129,7 @@ python3 agent-jail run \
   --allow-ops \
   --allow-delegate ops \
   --allow-browser \
-  codex --yolo
+  codex --dangerously-bypass-approvals-and-sandbox
 ```
 
 Use the mediated capability command surface inside a session:
@@ -201,8 +203,8 @@ That removes the need to repeat those flags for repo-local infra work.
 Run with the built-in proxy enabled:
 
 ```bash
-python3 agent-jail run --proxy codex --yolo
-python3 agent-jail run --proxy --deny-network-by-default claude
+python3 agent-jail run --proxy codex --dangerously-bypass-approvals-and-sandbox
+python3 agent-jail run --proxy --deny-network-by-default claude --allow-dangerously-skip-permissions
 ```
 
 Manage network rules from the CLI:
@@ -345,7 +347,7 @@ Rules live in:
 You can override the state directory with:
 
 ```bash
-AGENT_JAIL_HOME=/some/path python3 agent-jail run codex --yolo
+AGENT_JAIL_HOME=/some/path python3 agent-jail run codex --dangerously-bypass-approvals-and-sandbox
 ```
 
 Set `AGENT_JAIL_LOG_STDERR=1` if you want the broker to keep mirroring events to stderr. By default, event output is written to the session event log instead, which keeps interactive TUIs clean.
