@@ -48,6 +48,7 @@ Set a personal default run profile once:
 python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
+  --git-ssh-host github.com \
   --allow-ops \
   --project-mode cwd
 ```
@@ -57,6 +58,7 @@ After that, a plain run inherits:
 - current working directory as a writable project root
 - `~/build` as read-only
 - `~/workspace` as writable
+- Git SSH transport allowed to `github.com`
 - ops enabled by default
 
 Run with an explicit writable project:
@@ -254,6 +256,7 @@ python3 agent-jail config show
 python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
+  --git-ssh-host github.com \
   --allow-ops \
   --allow-delegate local-secrets \
   --project-mode cwd
@@ -505,6 +508,7 @@ You can also define personal run defaults in the same file:
       "read_only_roots": ["~/build"],
       "write_roots": ["~/workspace"],
       "home_mounts": [".config/opencode", ".overwatchr"],
+      "git_ssh_hosts": ["github.com"],
       "allow_ops": true,
       "project_mode": "cwd"
     }
@@ -515,6 +519,8 @@ You can also define personal run defaults in the same file:
 With that profile in place, `agent-jail run <cmd>` behaves like a convenience wrapper for day-to-day local use while still keeping the policy in config instead of in an external shell alias.
 
 `home_mounts` are relative to your real home directory and are mirrored into the jailed home as writable symlinks. Use them for tool state that needs to stay live inside the jail, such as `~/.overwatchr` or `~/.config/opencode`.
+
+`git_ssh_hosts` is an explicit allowlist for Git's SSH transport hosts. For example, adding `github.com` lets jailed `git push origin main` use Git's narrow `ssh ... git-receive-pack` transport there while leaving arbitrary SSH blocked.
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 

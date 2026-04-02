@@ -149,6 +149,27 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(verdict["risk"], "critical")
         self.assertEqual(verdict["category"], "absolute-path-sensitive")
 
+    def test_classify_git_ssh_transport_to_configured_host_as_low(self):
+        argv = ["/usr/bin/ssh", "-o", "SendEnv=GIT_PROTOCOL", "git@github.com", "git-receive-pack 'atiti/agent-jail.git'"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, context={"git_ssh_hosts": ["github.com"]})
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "git-transport")
+
+    def test_classify_git_ssh_transport_to_unconfigured_host_stays_blocked(self):
+        argv = ["/usr/bin/ssh", "git@gitlab.example.com", "git-receive-pack 'atiti/agent-jail.git'"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, context={"git_ssh_hosts": ["github.com"]})
+        self.assertEqual(verdict["risk"], "critical")
+        self.assertEqual(verdict["category"], "absolute-path-sensitive")
+
+    def test_classify_non_git_ssh_command_to_configured_host_stays_blocked(self):
+        argv = ["/usr/bin/ssh", "git@github.com", "uptime"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv, context={"git_ssh_hosts": ["github.com"]})
+        self.assertEqual(verdict["risk"], "critical")
+        self.assertEqual(verdict["category"], "absolute-path-sensitive")
+
     def test_classify_read_only_shell_chain_as_low(self):
         argv = ["bash", "-c", "git status && git rev-parse HEAD"]
         intent = normalize(argv)

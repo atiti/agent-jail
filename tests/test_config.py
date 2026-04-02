@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
                 "read_only_roots": [],
                 "write_roots": [],
                 "home_mounts": [".overwatchr"],
+                "git_ssh_hosts": [],
                 "proxy": True,
                 "allow_ops": False,
                 "allow_delegates": [],
@@ -100,6 +101,7 @@ class ConfigTests(unittest.TestCase):
                                 "read_only_roots": ["~/build", "", 1],
                                 "write_roots": ["~/workspace"],
                                 "home_mounts": [".config/opencode", "~/Library/Application Support/Pi", "", 1],
+                                "git_ssh_hosts": ["github.com", "GitHub.com", "git@gitlab.example.com", "", 1],
                                 "proxy": False,
                                 "allow_ops": True,
                                 "allow_delegates": ["local-secrets", "", 1],
@@ -121,6 +123,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(
             config["defaults"]["run"]["home_mounts"],
             [".config/opencode", "Library/Application Support/Pi", ".overwatchr"],
+        )
+        self.assertEqual(
+            config["defaults"]["run"]["git_ssh_hosts"],
+            ["github.com", "gitlab.example.com"],
         )
         self.assertFalse(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])

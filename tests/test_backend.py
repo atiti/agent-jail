@@ -80,6 +80,17 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(global-name "com.apple.notifyd")', profile)
         self.assertIn('(global-name "com.apple.SecurityServer")', profile)
 
+    def test_sandbox_exec_profile_allows_ssh_exec_when_git_ssh_hosts_are_configured(self):
+        env = {
+            "AGENT_JAIL_GIT_SSH_HOSTS": json.dumps(["github.com"]),
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+        }
+
+        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        self.assertNotIn('(literal "/usr/bin/ssh")', profile)
+
     @mock.patch("agent_jail.backend.platform.system", return_value="Darwin")
     @mock.patch("agent_jail.backend.os.path.realpath")
     def test_sandbox_exec_profile_includes_darwin_realpath_aliases(self, mock_realpath, _mock_system):

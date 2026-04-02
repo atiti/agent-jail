@@ -17,10 +17,6 @@ DARWIN_GLOBAL_MACH_SERVICES = (
     "com.apple.nsurlstorage-cache",
 )
 
-DARWIN_DENIED_EXEC_PATHS = (
-    "/usr/bin/ssh",
-)
-
 DARWIN_TTY_IOCTL_REGEX = '^/dev/tty.*'
 
 
@@ -120,6 +116,14 @@ def _pattern_to_regex(pattern):
     return translated
 
 
+def _darwin_denied_exec_paths(env):
+    denied = []
+    git_ssh_hosts = _load_json_list(env, "AGENT_JAIL_GIT_SSH_HOSTS")
+    if not git_ssh_hosts:
+        denied.append("/usr/bin/ssh")
+    return denied
+
+
 def build_sandbox_exec_profile(cwd, env):
     writable = _writable_paths(cwd, env)
     deny_patterns = _deny_read_patterns(env)
@@ -129,7 +133,7 @@ def build_sandbox_exec_profile(cwd, env):
         "(deny default)",
         "(deny process-exec",
     ]
-    for path in DARWIN_DENIED_EXEC_PATHS:
+    for path in _darwin_denied_exec_paths(env):
         lines.append(f"    (literal {_profile_quote(path)})")
     lines.extend(
         [

@@ -158,6 +158,8 @@ class CLITests(unittest.TestCase):
                 "~/workspace",
                 "--home-mount",
                 ".config/opencode",
+                "--git-ssh-host",
+                "github.com",
                 "--proxy",
                 "--allow-ops",
                 "--allow-delegate",
@@ -178,6 +180,7 @@ class CLITests(unittest.TestCase):
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
         self.assertEqual(config["defaults"]["run"]["home_mounts"], [".config/opencode", ".overwatchr"])
+        self.assertEqual(config["defaults"]["run"]["git_ssh_hosts"], ["github.com"])
         self.assertTrue(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])

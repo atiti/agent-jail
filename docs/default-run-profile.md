@@ -11,6 +11,7 @@ The `defaults.run` section supports:
 - `read_only_roots`
 - `write_roots`
 - `home_mounts`
+- `git_ssh_hosts`
 - `allow_ops`
 - `allow_delegates`
 - `project_mode`
@@ -28,6 +29,7 @@ Current `project_mode` values:
       "read_only_roots": ["~/build"],
       "write_roots": ["~/workspace"],
       "home_mounts": [".config/opencode", ".overwatchr"],
+      "git_ssh_hosts": ["github.com"],
       "allow_ops": true,
       "allow_delegates": ["local-secrets"],
       "project_mode": "cwd"
@@ -42,6 +44,7 @@ With this profile:
 - `~/build` is mounted read-only
 - `~/workspace` is mounted read-write
 - `~/.config/opencode` and `~/.overwatchr` are mirrored into the jailed home
+- Git SSH transport is allowed to `github.com` for normal `git push` / `git fetch` SSH remotes
 - ops capability is enabled by default
 - `local-secrets` is allowed by default
 
@@ -65,7 +68,10 @@ python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
   --home-mount .config/opencode \
+  --git-ssh-host github.com \
   --allow-ops \
   --allow-delegate local-secrets \
   --project-mode cwd
 ```
+
+`git_ssh_hosts` only opens the narrow Git SSH transport path to listed hosts. Arbitrary `ssh host ...` commands remain blocked by broker policy.

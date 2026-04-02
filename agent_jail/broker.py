@@ -62,6 +62,28 @@ GIT_FLAGS_WITH_VALUES = {
     "--config-env",
     "--exec-path",
 }
+SSH_FLAGS_WITH_VALUES = {
+    "-b",
+    "-c",
+    "-D",
+    "-E",
+    "-e",
+    "-F",
+    "-I",
+    "-i",
+    "-J",
+    "-L",
+    "-l",
+    "-m",
+    "-O",
+    "-o",
+    "-p",
+    "-Q",
+    "-R",
+    "-S",
+    "-W",
+    "-w",
+}
 
 
 def event_template(intent, verdict=None):
@@ -525,11 +547,99 @@ def _secret_delegate_rerun_command(delegate_name, argv, analysis=None, script_pa
     return shlex.join(_secret_delegate_rerun_argv(delegate_name, argv, analysis=analysis, script_path=script_path))
 
 
+def _configured_git_ssh_hosts(context):
+    values = []
+    for item in (context or {}).get("git_ssh_hosts", []):
+        if not isinstance(item, str):
+            continue
+        value = item.strip().lower()
+        if not value:
+            continue
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def _normalize_ssh_host(host):
+    if not isinstance(host, str):
+        return ""
+    value = host.strip().lower()
+    if not value:
+        return ""
+    if "@" in value:
+        value = value.rsplit("@", 1)[-1]
+    if value.startswith("[") and "]" in value:
+        value = value[1:].split("]", 1)[0]
+    elif ":" in value:
+        value = value.split(":", 1)[0]
+    return value
+
+
+def _extract_ssh_destination_and_remote_command(argv):
+    destination = None
+    remote_command = None
+    index = 1
+    while index < len(argv):
+        item = argv[index]
+        if item == "--":
+            index += 1
+            break
+        if item in SSH_FLAGS_WITH_VALUES:
+            index += 2
+            continue
+        if item.startswith("-") and len(item) > 2 and item[:2] in SSH_FLAGS_WITH_VALUES:
+            index += 1
+            continue
+        if item.startswith("-"):
+            index += 1
+            continue
+        destination = item
+        index += 1
+        break
+    if destination is None:
+        return None, None
+    if index < len(argv):
+        remote_command = " ".join(argv[index:]).strip()
+    return destination, remote_command
+
+
+def _is_allowed_git_remote_command(remote_command):
+    if not remote_command:
+        return False
+    text = remote_command.strip()
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        text = text[1:-1].strip()
+    return text.startswith(("git-receive-pack ", "git-upload-pack ", "git-upload-archive "))
+
+
+def _classify_git_ssh_transport(argv, context):
+    command_path = argv[0] if argv else ""
+    if os.path.basename(command_path) != "ssh":
+        return None
+    hosts = set(_configured_git_ssh_hosts(context))
+    if not hosts:
+        return None
+    destination, remote_command = _extract_ssh_destination_and_remote_command(argv)
+    host = _normalize_ssh_host(destination)
+    if host not in hosts:
+        return None
+    if not _is_allowed_git_remote_command(remote_command):
+        return None
+    return {
+        "risk": "low",
+        "reason": f"git ssh transport to configured host {host}",
+        "category": "git-transport",
+    }
+
+
 def classify(intent, argv, delegates=None, context=None, secrets=None):
     raw = " ".join(argv)
     tool = intent["tool"]
     action = intent["action"]
     command_path = argv[0] if argv else ""
+    git_ssh_verdict = _classify_git_ssh_transport(argv, context or {})
+    if git_ssh_verdict is not None:
+        return git_ssh_verdict
     sensitive_absolute_paths = dict(DEFAULT_SENSITIVE_ABSOLUTE_PATHS)
     sensitive_absolute_paths.update(_delegate_executor_paths(delegates))
     delegated_tools = _delegate_tool_map(delegates)
@@ -592,7 +702,7 @@ def classify(intent, argv, delegates=None, context=None, secrets=None):
         risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
         for command in analysis["commands"]:
             nested_intent = normalize(command)
-            verdict = classify(nested_intent, command, delegates=delegates, secrets=secrets)
+            verdict = classify(nested_intent, command, delegates=delegates, context=context, secrets=secrets)
             if verdict["category"] in SENSITIVE_DENY_CATEGORIES:
                 return verdict
             if highest is None or risk_rank[verdict["risk"]] > risk_rank[highest["risk"]]:
@@ -674,6 +784,7 @@ class BrokerServer:
         llm_policy=None,
         jit_engine=None,
         secrets=None,
+        git_ssh_hosts=None,
         review_wait_timeout=300.0,
     ):
         self.path = path
@@ -687,6 +798,7 @@ class BrokerServer:
         self.log_stderr = log_stderr
         self.jit_engine = jit_engine or JITRuleEngine(llm_policy or {})
         self.secrets = secrets or {}
+        self.git_ssh_hosts = list(git_ssh_hosts or [])
         self.review_wait_timeout = float(review_wait_timeout)
 
     def serve_forever(self):
@@ -787,6 +899,7 @@ class BrokerServer:
             "cwd": request.get("cwd"),
             "read_roots": [mount.get("path") for mount in self.mounts if mount.get("path")],
             "deny_read_patterns": list(self.deny_read_patterns),
+            "git_ssh_hosts": list(self.git_ssh_hosts),
         }
         analysis = analyze_invocation(argv, context.get("cwd"))
         effective_argv = analysis.get("argv") or argv

@@ -30,6 +30,7 @@
 - Added exact-path secret delegate matching for local scripts and taught shell syntax-check commands like `bash -n`/`zsh -n` to bypass secret-capability routing when they only validate syntax.
 - Added JIT approval for exact-path local secret-script delegates so `agent-jail review approve <id>` can persist a narrow script-specific delegate in `config.json` instead of forcing manual config edits.
 - Mirrored `~/.overwatchr` into the jailed home by default so Codex stop hooks that call `overwatchr hook-run codex` keep working inside `agent-jail`.
+- Added config-driven `defaults.run.git_ssh_hosts` so jailed sessions can opt into Git's narrow SSH transport for hosts like `github.com` without reopening arbitrary SSH access.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Fixed a CI-only policy-store race by saving `policy.json` atomically, preventing concurrent review reloads from reading a truncated JSON file.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.

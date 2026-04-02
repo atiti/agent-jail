@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
 from agent_jail.capabilities import resolve_session_capabilities
-from agent_jail.config import _normalize_home_mount_list, load_config, save_config
+from agent_jail.config import _normalize_home_mount_list, _normalize_host_list, load_config, save_config
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
@@ -309,6 +309,7 @@ def parse_args(argv=None):
     config_set.add_argument("--read-only-root", action="append", default=[])
     config_set.add_argument("--write-root", action="append", default=[])
     config_set.add_argument("--home-mount", action="append", default=[])
+    config_set.add_argument("--git-ssh-host", action="append", default=[])
     config_set.add_argument("--proxy", dest="proxy", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-delegate", action="append", default=[])
@@ -759,6 +760,8 @@ def handle_config(args):
         run_defaults["write_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.write_root]
     if args.home_mount:
         run_defaults["home_mounts"] = _normalize_home_mount_list(args.home_mount)
+    if args.git_ssh_host:
+        run_defaults["git_ssh_hosts"] = _normalize_host_list(args.git_ssh_host)
     if args.proxy is not None:
         run_defaults["proxy"] = bool(args.proxy)
     if args.allow_ops is not None:
@@ -893,6 +896,7 @@ def run(argv=None):
             capabilities=session["capabilities"],
             delegates=config.get("delegates", []),
             secrets=config.get("secrets", {}),
+            git_ssh_hosts=run_defaults.get("git_ssh_hosts", []),
             mounts=session["mounts"] + [{"path": tmp, "mode": "rw"}],
             deny_read_patterns=config.get("filesystem", {}).get("deny_read_patterns", []),
             event_sink=event_sink,
@@ -928,6 +932,7 @@ def run(argv=None):
                 "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(
                     config.get("filesystem", {}).get("deny_read_patterns", []), sort_keys=True
                 ),
+                "AGENT_JAIL_GIT_SSH_HOSTS": json.dumps(run_defaults.get("git_ssh_hosts", []), sort_keys=True),
                 "AGENT_JAIL_HOST_HOME": os.path.expanduser("~"),
                 "HOME": home,
                 "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
