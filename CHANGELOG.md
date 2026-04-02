@@ -29,6 +29,7 @@
 - Tightened delegated inventory-tool UX by rejecting unsupported script-style entrypoints before they hit the runner, showing allowed tools in delegate denials, and emitting a local hint when `<tool> exec` is likely to remain in dry-run mode without `--approve`.
 - Added exact-path secret delegate matching for local scripts and taught shell syntax-check commands like `bash -n`/`zsh -n` to bypass secret-capability routing when they only validate syntax.
 - Added JIT approval for exact-path local secret-script delegates so `agent-jail review approve <id>` can persist a narrow script-specific delegate in `config.json` instead of forcing manual config edits.
+- Mirrored `~/.overwatchr` into the jailed home by default so Codex stop hooks that call `overwatchr hook-run codex` keep working inside `agent-jail`.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Fixed a CI-only policy-store race by saving `policy.json` atomically, preventing concurrent review reloads from reading a truncated JSON file.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.

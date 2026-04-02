@@ -156,6 +156,8 @@ class CLITests(unittest.TestCase):
                 "~/build",
                 "--write-root",
                 "~/workspace",
+                "--home-mount",
+                ".config/opencode",
                 "--proxy",
                 "--allow-ops",
                 "--allow-delegate",
@@ -175,6 +177,7 @@ class CLITests(unittest.TestCase):
             config["defaults"]["run"]["write_roots"],
             [os.path.abspath(os.path.expanduser("~/workspace"))],
         )
+        self.assertEqual(config["defaults"]["run"]["home_mounts"], [".config/opencode", ".overwatchr"])
         self.assertTrue(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
@@ -567,21 +570,23 @@ class CLITests(unittest.TestCase):
         self.assertIn("HTTP_PROXY", launch_env)
         self.assertIn("HTTPS_PROXY", launch_env)
 
-    def test_mounts_codex_and_claude_home_by_default(self):
+    def test_mounts_codex_claude_and_overwatchr_home_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             real_home = os.path.join(tmp, "real-home")
             jail_home = os.path.join(tmp, "jail-home")
             os.makedirs(os.path.join(real_home, ".codex"))
             os.makedirs(os.path.join(real_home, ".claude"))
+            os.makedirs(os.path.join(real_home, ".overwatchr"))
             os.makedirs(os.path.join(real_home, "build"))
             os.makedirs(os.path.join(real_home, "workspace"))
             old_home = os.environ.get("HOME")
             os.environ["HOME"] = real_home
             try:
                 from agent_jail.main import prepare_home_mounts
-                mounts = prepare_home_mounts(jail_home)
+                mounts = prepare_home_mounts(jail_home, extra_home_mounts=[".overwatchr"])
                 codex_link = os.path.islink(os.path.join(jail_home, ".codex"))
                 claude_link = os.path.islink(os.path.join(jail_home, ".claude"))
+                overwatchr_link = os.path.islink(os.path.join(jail_home, ".overwatchr"))
                 build_link = os.path.islink(os.path.join(jail_home, "build"))
                 workspace_link = os.path.islink(os.path.join(jail_home, "workspace"))
             finally:
@@ -589,9 +594,17 @@ class CLITests(unittest.TestCase):
                     del os.environ["HOME"]
                 else:
                     os.environ["HOME"] = old_home
-            self.assertEqual({m["source"] for m in mounts}, {os.path.join(real_home, ".codex"), os.path.join(real_home, ".claude")})
+            self.assertEqual(
+                {m["source"] for m in mounts},
+                {
+                    os.path.join(real_home, ".codex"),
+                    os.path.join(real_home, ".claude"),
+                    os.path.join(real_home, ".overwatchr"),
+                },
+            )
             self.assertTrue(codex_link)
             self.assertTrue(claude_link)
+            self.assertTrue(overwatchr_link)
             self.assertTrue(build_link)
             self.assertTrue(workspace_link)
 
@@ -601,21 +614,55 @@ class CLITests(unittest.TestCase):
             jail_home = os.path.join(tmp, "jail-home")
             os.makedirs(os.path.join(real_home, ".codex"))
             os.makedirs(os.path.join(real_home, ".claude"))
+            os.makedirs(os.path.join(real_home, ".overwatchr"))
             os.makedirs(os.path.join(real_home, "build"))
             os.makedirs(os.path.join(real_home, "workspace"))
             old_home = os.environ.get("HOME")
             os.environ["HOME"] = real_home
             try:
                 from agent_jail.main import prepare_home_mounts
-                mounts = prepare_home_mounts(jail_home, mount_codex_home=False, mount_claude_home=False)
+                mounts = prepare_home_mounts(
+                    jail_home,
+                    mount_codex_home=False,
+                    mount_claude_home=False,
+                    extra_home_mounts=[".overwatchr"],
+                )
             finally:
                 if old_home is None:
                     del os.environ["HOME"]
                 else:
                     os.environ["HOME"] = old_home
-            self.assertEqual(mounts, [])
+            self.assertEqual(mounts, [{"source": os.path.join(real_home, ".overwatchr"), "target": os.path.join(jail_home, ".overwatchr"), "mode": "rw"}])
+            self.assertTrue(os.path.islink(os.path.join(jail_home, ".overwatchr")))
             self.assertTrue(os.path.islink(os.path.join(jail_home, "build")))
             self.assertTrue(os.path.islink(os.path.join(jail_home, "workspace")))
+
+    def test_prepare_home_mounts_accepts_configured_nested_home_mounts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real_home = os.path.join(tmp, "real-home")
+            jail_home = os.path.join(tmp, "jail-home")
+            nested_source = os.path.join(real_home, ".config", "opencode")
+            os.makedirs(nested_source)
+            old_home = os.environ.get("HOME")
+            os.environ["HOME"] = real_home
+            try:
+                from agent_jail.main import prepare_home_mounts
+                mounts = prepare_home_mounts(
+                    jail_home,
+                    mount_codex_home=False,
+                    mount_claude_home=False,
+                    extra_home_mounts=[".config/opencode"],
+                )
+            finally:
+                if old_home is None:
+                    del os.environ["HOME"]
+                else:
+                    os.environ["HOME"] = old_home
+            self.assertIn(
+                {"source": nested_source, "target": os.path.join(jail_home, ".config", "opencode"), "mode": "rw"},
+                mounts,
+            )
+            self.assertTrue(os.path.islink(os.path.join(jail_home, ".config", "opencode")))
 
     def test_existing_target_is_backed_up_and_replaced(self):
         with tempfile.TemporaryDirectory() as tmp:

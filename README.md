@@ -504,6 +504,7 @@ You can also define personal run defaults in the same file:
     "run": {
       "read_only_roots": ["~/build"],
       "write_roots": ["~/workspace"],
+      "home_mounts": [".config/opencode", ".overwatchr"],
       "allow_ops": true,
       "project_mode": "cwd"
     }
@@ -512,6 +513,8 @@ You can also define personal run defaults in the same file:
 ```
 
 With that profile in place, `agent-jail run <cmd>` behaves like a convenience wrapper for day-to-day local use while still keeping the policy in config instead of in an external shell alias.
+
+`home_mounts` are relative to your real home directory and are mirrored into the jailed home as writable symlinks. Use them for tool state that needs to stay live inside the jail, such as `~/.overwatchr` or `~/.config/opencode`.
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 

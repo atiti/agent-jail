@@ -10,6 +10,7 @@ The `defaults.run` section supports:
 
 - `read_only_roots`
 - `write_roots`
+- `home_mounts`
 - `allow_ops`
 - `allow_delegates`
 - `project_mode`
@@ -26,6 +27,7 @@ Current `project_mode` values:
     "run": {
       "read_only_roots": ["~/build"],
       "write_roots": ["~/workspace"],
+      "home_mounts": [".config/opencode", ".overwatchr"],
       "allow_ops": true,
       "allow_delegates": ["local-secrets"],
       "project_mode": "cwd"
@@ -39,6 +41,7 @@ With this profile:
 - the current working directory is mounted read-write by default
 - `~/build` is mounted read-only
 - `~/workspace` is mounted read-write
+- `~/.config/opencode` and `~/.overwatchr` are mirrored into the jailed home
 - ops capability is enabled by default
 - `local-secrets` is allowed by default
 
@@ -61,6 +64,7 @@ Set the defaults from the CLI:
 python3 agent-jail config set-defaults \
   --read-only-root ~/build \
   --write-root ~/workspace \
+  --home-mount .config/opencode \
   --allow-ops \
   --allow-delegate local-secrets \
   --project-mode cwd

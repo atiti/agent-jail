@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
 from agent_jail.capabilities import resolve_session_capabilities
-from agent_jail.config import load_config, save_config
+from agent_jail.config import _normalize_home_mount_list, load_config, save_config
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
@@ -207,21 +207,24 @@ def discover_auxiliary_read_roots():
     return roots
 
 
-def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True):
+def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True, extra_home_mounts=None):
     os.makedirs(home, exist_ok=True)
     mounts = []
-    options = [
-        (mount_codex_home, ".codex"),
-        (mount_claude_home, ".claude"),
-    ]
+    options = []
+    if mount_codex_home:
+        options.append(".codex")
+    if mount_claude_home:
+        options.append(".claude")
+    for item in extra_home_mounts or []:
+        if isinstance(item, str) and item and item not in options:
+            options.append(item)
     real_home = os.path.expanduser("~")
-    for enabled, name in options:
-        if not enabled:
-            continue
+    for name in options:
         source = os.path.join(real_home, name)
         target = os.path.join(home, name)
         if not os.path.exists(source):
             continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
         if os.path.lexists(target):
             if os.path.islink(target) and os.path.realpath(target) == os.path.realpath(source):
                 mounts.append({"source": source, "target": target, "mode": "rw"})
@@ -305,6 +308,7 @@ def parse_args(argv=None):
     config_set = config_sub.add_parser("set-defaults")
     config_set.add_argument("--read-only-root", action="append", default=[])
     config_set.add_argument("--write-root", action="append", default=[])
+    config_set.add_argument("--home-mount", action="append", default=[])
     config_set.add_argument("--proxy", dest="proxy", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-delegate", action="append", default=[])
@@ -753,6 +757,8 @@ def handle_config(args):
         run_defaults["read_only_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.read_only_root]
     if args.write_root:
         run_defaults["write_roots"] = [os.path.abspath(os.path.expanduser(path)) for path in args.write_root]
+    if args.home_mount:
+        run_defaults["home_mounts"] = _normalize_home_mount_list(args.home_mount)
     if args.proxy is not None:
         run_defaults["proxy"] = bool(args.proxy)
     if args.allow_ops is not None:
@@ -904,6 +910,7 @@ def run(argv=None):
             home,
             mount_codex_home=args.mount_codex_home,
             mount_claude_home=args.mount_claude_home,
+            extra_home_mounts=run_defaults.get("home_mounts", []),
         )
         env = os.environ.copy()
         env.update(
