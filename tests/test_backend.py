@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from agent_jail.backend import build_command, build_sandbox_exec_profile, choose_backend
 
@@ -77,6 +78,47 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(literal "/usr/bin/ssh")', profile)
         self.assertIn('(global-name "com.apple.SystemConfiguration.configd")', profile)
         self.assertIn('(global-name "com.apple.notifyd")', profile)
+        self.assertIn('(global-name "com.apple.SecurityServer")', profile)
+
+    @mock.patch("agent_jail.backend.platform.system", return_value="Darwin")
+    @mock.patch("agent_jail.backend.os.path.realpath")
+    def test_sandbox_exec_profile_includes_darwin_realpath_aliases(self, mock_realpath, _mock_system):
+        aliases = {
+            "/tmp": "/private/tmp",
+            "/var/folders/example/T": "/private/var/folders/example/T",
+            "/var/folders/example/C": "/private/var/folders/example/C",
+            "/Users/example/cwd": "/Users/example/cwd",
+        }
+        mock_realpath.side_effect = lambda path: aliases.get(path, path)
+        env = {
+            "TMPDIR": "/var/folders/example/T",
+            "AGENT_JAIL_SESSION_DIR": "/var/folders/example/C",
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+        }
+
+        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        self.assertIn('(subpath "/tmp")', profile)
+        self.assertIn('(subpath "/private/tmp")', profile)
+        self.assertIn('(subpath "/var/folders/example/T")', profile)
+        self.assertIn('(subpath "/private/var/folders/example/T")', profile)
+        self.assertIn('(subpath "/var/folders/example/C")', profile)
+        self.assertIn('(subpath "/private/var/folders/example/C")', profile)
+
+    @mock.patch("agent_jail.backend.platform.system", return_value="Darwin")
+    @mock.patch("agent_jail.backend.os.path.realpath", side_effect=lambda path: path)
+    def test_sandbox_exec_profile_includes_darwin_cache_dir_for_tmp_paths(self, _mock_realpath, _mock_system):
+        env = {
+            "TMPDIR": "/var/folders/aa/bb/T",
+            "AGENT_JAIL_SESSION_DIR": "/var/folders/aa/bb/T/agent-jail-123",
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+        }
+
+        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        self.assertIn('(subpath "/var/folders/aa/bb/C")', profile)
 
     def test_build_command_writes_sandbox_profile(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -18,6 +18,7 @@
 - Made plain jailed `codex` prefer native macOS trust again by dropping the injected `SSL_CERT_FILE` and `SSL_CERT_DIR` overrides when no proxy-specific Codex profile is active.
 - On macOS, added a cert-only fallback that exports the system root certificate keychain to a session-local PEM so jailed Codex can use Apple root certificates without opening general keychain access.
 - Added `scripts/reqwest_tls_probe.py` to reproduce `reqwest` TLS behavior outside Codex with selectable TLS backends, cert sources, and optional `sandbox-exec` runtime wrapping.
+- Fixed macOS `sandbox-exec` writable-path generation for Security.framework native trust by allowing `com.apple.SecurityServer`, adding `/private/...` realpath aliases, and including the Darwin user cache `.../C` directory derived from temp/session paths.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.

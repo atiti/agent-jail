@@ -3,6 +3,7 @@ import fnmatch
 import os
 import platform
 import shutil
+from pathlib import Path
 
 DARWIN_GLOBAL_MACH_SERVICES = (
     "com.apple.SystemConfiguration.configd",
@@ -10,6 +11,7 @@ DARWIN_GLOBAL_MACH_SERVICES = (
     "com.apple.notifyd",
     "com.apple.trustd",
     "com.apple.securityd",
+    "com.apple.SecurityServer",
     "com.apple.ocspd",
     "com.apple.cfprefsd.agent",
     "com.apple.nsurlstorage-cache",
@@ -78,7 +80,33 @@ def _writable_paths(cwd, env):
             path = mount.get(key)
             if path:
                 writable.add(path)
+    if platform.system().lower().startswith("darwin"):
+        for path in list(writable):
+            cache_dir = _darwin_user_cache_dir(path)
+            if cache_dir:
+                writable.add(cache_dir)
+        # `/var` and `/tmp` commonly resolve through `/private/...` on macOS.
+        # Include both spellings so Security.framework cache writes keep working.
+        for path in list(writable):
+            real = os.path.realpath(path)
+            if real:
+                writable.add(real)
     return sorted(path for path in writable if path)
+
+
+def _darwin_user_cache_dir(path):
+    try:
+        candidate = Path(path)
+    except TypeError:
+        return None
+    parts = candidate.parts
+    if len(parts) >= 6 and parts[1] == "var" and parts[2] == "folders":
+        root = Path(*parts[:5])
+        return str(root / "C")
+    if len(parts) >= 7 and parts[1] == "private" and parts[2] == "var" and parts[3] == "folders":
+        root = Path(*parts[:6])
+        return str(root / "C")
+    return None
 
 
 def _deny_read_patterns(env):
