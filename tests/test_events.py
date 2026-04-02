@@ -77,3 +77,8 @@ class EventTests(unittest.TestCase):
             rendered,
             "[DENY][capability][exit] bash ./scripts/service-health.sh summary --format text (returncode=1)",
         )
+
+    def test_render_event_truncates_long_raw_for_human_output(self):
+        rendered = render_event({"action": "allow", "category": "general", "raw": "x" * 400})
+        self.assertTrue(rendered.endswith("..."))
+        self.assertLess(len(rendered), 320)

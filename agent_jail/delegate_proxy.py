@@ -1,8 +1,17 @@
 import os
+import re
 import subprocess
 import threading
 
 from agent_jail.script_analysis import detect_secret_capabilities
+
+SECRET_PLACEHOLDER = "***REDACTED***"
+SECRET_NAME_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PASSWD|PASS|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|KEY)", re.IGNORECASE)
+SECRET_ASSIGN_RE = re.compile(
+    r"(\b(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|PASS|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|KEY)[A-Za-z0-9_]*=)"
+    r"(\"[^\"]*\"|'[^']*'|[^\s;|&]+)",
+    re.IGNORECASE,
+)
 
 
 def _expand_delegate_env_value(value, env):
@@ -50,6 +59,47 @@ def _inject_required_secret_env(env, delegate, command):
         for key, value in env_map.items():
             env[key] = _expand_delegate_env_value(value, env)
     return env
+
+
+def _looks_secret_key(name):
+    return isinstance(name, str) and bool(SECRET_NAME_RE.search(name))
+
+
+def _secret_replacements(env):
+    values = []
+    seen = set()
+    for key, value in (env or {}).items():
+        if not _looks_secret_key(key):
+            continue
+        if not isinstance(value, str) or not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    values.sort(key=len, reverse=True)
+    return values
+
+
+def _redact_text(text, env=None):
+    if not isinstance(text, str) or not text:
+        return text
+    redacted = text
+    for value in _secret_replacements(env):
+        redacted = redacted.replace(value, SECRET_PLACEHOLDER)
+    redacted = SECRET_ASSIGN_RE.sub(r"\1" + SECRET_PLACEHOLDER, redacted)
+    return redacted
+
+
+def redact_argv(argv, env=None):
+    return [_redact_text(item, env=env) for item in (argv or [])]
+
+
+def format_delegate_display(argv, env=None, max_len=240):
+    text = " ".join(redact_argv(argv, env=env))
+    if max_len and len(text) > max_len:
+        return text[: max_len - 3] + "..."
+    return text
 
 
 def _inventory_tool_names(delegate):
@@ -155,13 +205,14 @@ def prepare_delegate_proxy(capabilities, delegates, name, command):
 def run_delegate_proxy(capabilities, delegates, name, command):
     delegate, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
     note = _delegate_note(command)
+    delegated_display = redact_argv(delegated, env=env)
     if delegate.get("mode") == "execute":
         proc = subprocess.run(delegated, text=True, capture_output=True, env=env)
         result = {
             "status": "ok" if proc.returncode == 0 else "error",
             "delegate": name,
             "command": list(command),
-            "delegated_command": delegated,
+            "delegated_command": delegated_display,
             "returncode": proc.returncode,
             "stdout": proc.stdout,
             "stderr": proc.stderr,
@@ -169,7 +220,7 @@ def run_delegate_proxy(capabilities, delegates, name, command):
         if note:
             result["note"] = note
         return result
-    result = {"status": "ok", "delegate": name, "command": list(command), "delegated_command": delegated}
+    result = {"status": "ok", "delegate": name, "command": list(command), "delegated_command": delegated_display}
     if note:
         result["note"] = note
     return result
@@ -177,7 +228,7 @@ def run_delegate_proxy(capabilities, delegates, name, command):
 
 def stream_delegate_proxy(capabilities, delegates, name, command, write_frame):
     _, delegated, env = prepare_delegate_proxy(capabilities, delegates, name, command)
-    header = f"[delegate:{name}] {' '.join(delegated)}\n"
+    header = f"[delegate:{name}] {format_delegate_display(delegated, env=env)}\n"
     write_frame({"type": "header", "stream": "stderr", "text": header})
     note = _delegate_note(command)
     if note:

@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 from agent_jail.browser_proxy import run_browser_proxy
-from agent_jail.delegate_proxy import prepare_delegate_proxy, run_delegate_proxy
+from agent_jail.delegate_proxy import SECRET_PLACEHOLDER, format_delegate_display, prepare_delegate_proxy, run_delegate_proxy
 from agent_jail.skills_proxy import run_skill_proxy
 
 
@@ -157,6 +157,33 @@ class CapabilityProxyTests(unittest.TestCase):
         env = mocked_run.call_args.kwargs["env"]
         self.assertEqual(env["AGE_KEY_FILE"], "/Users/example/keys.txt")
         self.assertNotIn("OTHER_SECRET", env)
+
+    def test_delegate_result_redacts_secret_like_env_assignments(self):
+        with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
+            mocked_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            result = run_delegate_proxy(
+                {"delegates": ["local-secrets"]},
+                {
+                    "local-secrets": {
+                        "name": "local-secrets",
+                        "allowed_tools": ["bash"],
+                        "mode": "execute",
+                    }
+                },
+                "local-secrets",
+                ["bash", "-lc", "export AZURE_OPENAI_API_KEY=super-secret-value; ./scripts/service-health.sh"],
+            )
+        flattened = " ".join(result["delegated_command"])
+        self.assertNotIn("super-secret-value", flattened)
+        self.assertIn(SECRET_PLACEHOLDER, flattened)
+
+    def test_delegate_display_redacts_injected_secret_values(self):
+        text = format_delegate_display(
+            ["python3", "-c", "import os; print(os.environ['AGE_KEY_FILE'])", "/Users/example/keys.txt"],
+            env={"AGE_KEY_FILE": "/Users/example/keys.txt"},
+        )
+        self.assertNotIn("/Users/example/keys.txt", text)
+        self.assertIn(SECRET_PLACEHOLDER, text)
 
     def test_delegate_auto_inventory_defaults_from_cwd(self):
         with mock.patch("agent_jail.delegate_proxy.os.path.isdir", return_value=True):

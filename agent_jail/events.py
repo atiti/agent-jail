@@ -97,6 +97,8 @@ def render_event(event, color=False):
     category = event.get("category")
     session = event.get("session")
     raw = event.get("raw") or event.get("message") or ""
+    if isinstance(raw, str) and len(raw) > MAX_RENDERED_RAW:
+        raw = raw[: MAX_RENDERED_RAW - 3] + "..."
     phase = event.get("phase")
     reason = event.get("reason")
     timestamp = event.get("timestamp", "")
@@ -173,3 +175,4 @@ CATEGORY_COLORS = {
     "agent-launch": "\033[32m",
     "capability-bridge": "\033[34m",
 }
+MAX_RENDERED_RAW = 240

@@ -228,3 +228,50 @@ class CapabilityCLITests(unittest.TestCase):
         phases = [(event.get("phase"), event.get("action"), event.get("delegate")) for event in events if event.get("capability") == "delegate"]
         self.assertIn(("start", "allow", "ops"), phases)
         self.assertIn(("exit", "allow", "ops"), phases)
+
+    def test_delegate_execute_lifecycle_events_redact_secret_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            log_path = os.path.join(tmp, "events.jsonl")
+            script_path = os.path.join(tmp, "delegate-exec")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            os.chmod(script_path, 0o755)
+            sink = EventSink(log_path, default_fields={"session": "session-test"})
+            sink.start()
+            self.addCleanup(sink.close)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            server = BrokerServer(
+                sock_path,
+                store,
+                capabilities={"delegate": True, "delegates": ["local-secrets"]},
+                delegates=[
+                    {
+                        "name": "local-secrets",
+                        "executor": script_path,
+                        "allowed_tools": ["bash"],
+                        "mode": "execute",
+                    }
+                ],
+                event_sink=sink,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.close)
+            env = os.environ.copy()
+            env["AGENT_JAIL_SOCKET"] = sock_path
+            proc = self.run_cap(
+                "delegate",
+                "local-secrets",
+                "bash",
+                "-lc",
+                "export AZURE_OPENAI_API_KEY=super-secret-value; true",
+                env=env,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("super-secret-value", proc.stderr)
+            self.assertIn("***REDACTED***", proc.stderr)
+            with open(log_path, encoding="utf-8") as handle:
+                raw_text = handle.read()
+        self.assertNotIn("super-secret-value", raw_text)
+        self.assertIn("***REDACTED***", raw_text)
