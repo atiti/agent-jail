@@ -32,6 +32,7 @@
 - Mirrored `~/.overwatchr` into the jailed home by default so Codex stop hooks that call `overwatchr hook-run codex` keep working inside `agent-jail`.
 - Added config-driven `defaults.run.git_ssh_hosts` so jailed sessions can opt into Git's narrow SSH transport for hosts like `github.com` without reopening arbitrary SSH access.
 - Allowed explicit executable file mapping in the macOS `sandbox-exec` profile so user-installed toolchains such as Homebrew Node and npm-installed CLIs can launch again under `agent-jail`.
+- Added an explicit macOS `process-exec` allow in the generated sandbox profile instead of relying on the broader `process*` shorthand during launch.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Fixed a CI-only policy-store race by saving `policy.json` atomically, preventing concurrent review reloads from reading a truncated JSON file.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.

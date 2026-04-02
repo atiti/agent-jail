@@ -80,6 +80,7 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(global-name "com.apple.SystemConfiguration.configd")', profile)
         self.assertIn('(global-name "com.apple.notifyd")', profile)
         self.assertIn('(global-name "com.apple.SecurityServer")', profile)
+        self.assertIn("(allow process-exec)", profile)
 
     def test_sandbox_exec_profile_allows_ssh_exec_when_git_ssh_hosts_are_configured(self):
         env = {

@@ -139,6 +139,7 @@ def build_sandbox_exec_profile(cwd, env):
         [
             ")",
             "(allow process*)",
+            "(allow process-exec)",
         ]
     )
     lines.extend(
