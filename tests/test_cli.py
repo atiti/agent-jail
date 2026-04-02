@@ -1001,6 +1001,51 @@ class CLITests(unittest.TestCase):
         self.assertEqual(policy["pending_reviews"], [])
         self.assertEqual(policy["rules"][0]["tool"], "tree")
 
+    def test_review_approve_persists_delegate_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            policy_path = os.path.join(tmp, "policy.json")
+            config_path = os.path.join(tmp, "config.json")
+            script_path = "/Users/Shared/workspaces/private-infra/scripts/unifi-api.sh"
+            with open(policy_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "rules": [],
+                        "pending_reviews": [
+                            {
+                                "id": "review-1",
+                                "kind": "delegate-config",
+                                "tool": "unifi-api.sh",
+                                "action": "secret-delegate",
+                                "raw": f"{script_path} wifi-health --format text",
+                                "template": script_path,
+                                "script_path": script_path,
+                                "secret_capability": "age_key_file",
+                                "delegate": {
+                                    "name": "local-secret-unifi-api-sh-age-key-file",
+                                    "allowed_tools": [script_path],
+                                    "allowed_secrets": ["age_key_file"],
+                                    "mode": "execute",
+                                },
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump({"delegates": []}, handle)
+            proc = self.run_cli("review", "approve", "review-1", env=env)
+            with open(policy_path, encoding="utf-8") as handle:
+                policy = json.load(handle)
+            with open(config_path, encoding="utf-8") as handle:
+                config = json.load(handle)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(policy["pending_reviews"], [])
+        self.assertEqual(config["delegates"][0]["name"], "local-secret-unifi-api-sh-age-key-file")
+        self.assertEqual(config["delegates"][0]["allowed_tools"], [script_path])
+        self.assertEqual(config["delegates"][0]["allowed_secrets"], ["age_key_file"])
+
     def test_review_reject_removes_pending_request(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()

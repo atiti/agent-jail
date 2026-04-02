@@ -485,6 +485,36 @@ class BrokerTests(unittest.TestCase):
         self.assertIn("secret capability required", result["reason"])
         self.assertIn("agent-jail-cap delegate ops", result["reason"])
 
+    def test_secret_capability_creates_pending_delegate_review_for_local_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = os.path.join(tmp, "wifi-health.sh")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nprintf '%s\\n' \"$AGE_KEY_FILE\"\n")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.keys.txt"}}},
+                delegates=[
+                    {
+                        "name": "ops",
+                        "executor": "/usr/local/bin/delegate-exec",
+                        "allowed_tools": ["privateinfractl"],
+                        "allowed_secrets": ["age_key_file"],
+                    }
+                ],
+            )
+            result = broker.handle({"type": "exec", "argv": [script_path, "wifi-health"], "raw": f"{script_path} wifi-health", "cwd": tmp})
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("secret-delegate-review-required", result["reason"])
+        self.assertEqual(len(store.pending_reviews), 1)
+        review = store.pending_reviews[0]
+        self.assertEqual(review["kind"], "delegate-config")
+        self.assertEqual(review["script_path"], script_path)
+        self.assertEqual(review["secret_capability"], "age_key_file")
+        self.assertEqual(review["delegate"]["allowed_tools"], [script_path])
+        self.assertEqual(review["delegate"]["allowed_secrets"], ["age_key_file"])
+
     def test_read_guard_denies_python_variable_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")

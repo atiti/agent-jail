@@ -606,6 +606,23 @@ def review_rule_from_pending(review):
     }
 
 
+def _upsert_delegate(config, delegate):
+    delegates = list(config.get("delegates") or [])
+    target_name = delegate.get("name")
+    replaced = False
+    retained = []
+    for existing in delegates:
+        if existing.get("name") == target_name:
+            retained.append(dict(delegate))
+            replaced = True
+        else:
+            retained.append(existing)
+    if not replaced:
+        retained.append(dict(delegate))
+    config["delegates"] = retained
+    return replaced
+
+
 def _is_internal_review(review):
     tool = review.get("tool") or ""
     template = review.get("template") or ""
@@ -688,6 +705,7 @@ def _format_review_list(reviews, show_all=False, color=False):
 def handle_review(args):
     home = ensure_home()
     store = PolicyStore(os.path.join(home, "policy.json"))
+    config_path = os.path.join(home, "config.json")
     if args.review_command == "list":
         reviews = store.pending_reviews
         if args.json:
@@ -700,6 +718,17 @@ def handle_review(args):
         print(f"agent-jail review: unknown id {args.review_id}", file=sys.stderr)
         return 2
     if args.review_command == "approve":
+        if review.get("kind") == "delegate-config":
+            delegate = review.get("delegate") or {}
+            if not delegate.get("name"):
+                print(f"agent-jail review: pending delegate review {args.review_id} is missing delegate config", file=sys.stderr)
+                return 2
+            config = load_config(config_path)
+            replaced = _upsert_delegate(config, delegate)
+            save_config(config, config_path)
+            store.remove_pending_review(args.review_id)
+            print("already-approved" if replaced else "approved")
+            return 0
         rule = review_rule_from_pending(review)
         metadata = dict(rule.get("metadata", {}))
         metadata["promotion_state"] = "user-approved"

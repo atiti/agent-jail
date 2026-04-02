@@ -438,6 +438,13 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
     capabilities = detected.get("secret_capabilities", [])
     if not capabilities:
         return None
+    script_path = None
+    if analysis and analysis.get("source_path") and argv and argv[0] == analysis.get("source_path"):
+        script_path = os.path.abspath(analysis["source_path"])
+    elif argv and os.path.sep in argv[0]:
+        candidate = os.path.abspath(os.path.join((context or {}).get("cwd") or os.getcwd(), argv[0]))
+        if os.path.isfile(candidate):
+            script_path = candidate
     preferred = []
     fallback = []
     for delegate in delegates or ():
@@ -448,6 +455,26 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
             else:
                 fallback.append(delegate)
     chosen = (preferred or fallback or [None])[0]
+    if not preferred and script_path:
+        capability = capabilities[0]
+        delegate_name = _derive_local_secret_delegate_name(script_path, capability)
+        return {
+            "risk": "high",
+            "reason": (
+                f"secret capability required: {', '.join(capabilities)}; "
+                f"approve an exact-path delegate for {script_path}"
+            ),
+            "category": "secret-capability",
+            "review_kind": "delegate-config",
+            "script_path": script_path,
+            "secret_capability": capability,
+            "delegate": {
+                "name": delegate_name,
+                "allowed_tools": [script_path],
+                "allowed_secrets": [capability],
+                "mode": "execute",
+            },
+        }
     if chosen:
         names = ", ".join(capabilities)
         return {
@@ -461,6 +488,25 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
         "reason": f"secret capability required but no configured delegate can provide it: {names}",
         "category": "secret-capability",
     }
+
+
+def _sanitize_delegate_name_part(value):
+    cleaned = []
+    for char in value.lower():
+        if char.isalnum():
+            cleaned.append(char)
+        else:
+            cleaned.append("-")
+    text = "".join(cleaned).strip("-")
+    while "--" in text:
+        text = text.replace("--", "-")
+    return text or "script"
+
+
+def _derive_local_secret_delegate_name(script_path, capability):
+    script_name = _sanitize_delegate_name_part(os.path.basename(script_path))
+    capability_name = _sanitize_delegate_name_part(capability)
+    return f"local-secret-{script_name}-{capability_name}"
 
 
 def classify(intent, argv, delegates=None, context=None, secrets=None):
@@ -747,6 +793,40 @@ class BrokerServer:
             return {"decision": "deny", "reason": read_guard["reason"]}
         secret_guard = _secret_env_capability_violation(effective_argv, context, analysis, self.delegates.values(), self.secrets)
         if secret_guard:
+            if secret_guard.get("review_kind") == "delegate-config":
+                template = secret_guard.get("script_path") or event_template(intent, secret_guard)
+                self._log(
+                    "ASK",
+                    raw,
+                    secret_guard.get("category"),
+                    kind="exec",
+                    tool=os.path.basename(secret_guard.get("script_path") or intent["tool"]),
+                    verb="secret-delegate",
+                    template=template,
+                    risk=secret_guard["risk"],
+                    reason=secret_guard.get("reason"),
+                    secret_capability=secret_guard.get("secret_capability"),
+                )
+                pending = self.policy_store.add_pending_review(
+                    {
+                        "kind": "delegate-config",
+                        "tool": os.path.basename(secret_guard["script_path"]),
+                        "action": "secret-delegate",
+                        "raw": raw,
+                        "template": template,
+                        "reason": secret_guard.get("reason"),
+                        "script_path": secret_guard["script_path"],
+                        "secret_capability": secret_guard["secret_capability"],
+                        "delegate": secret_guard["delegate"],
+                    }
+                )
+                return {
+                    "decision": "deny",
+                    "reason": (
+                        f"secret-delegate-review-required[{pending['id']}]: "
+                        f"approve to add {pending['delegate']['name']} for {pending['script_path']}"
+                    ),
+                }
             self._log(
                 "DENY",
                 raw,
