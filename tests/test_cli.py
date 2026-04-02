@@ -77,6 +77,33 @@ class CLITests(unittest.TestCase):
         self.assertEqual(resolved[0], os.path.realpath(host_target))
         self.assertEqual(resolved[1:], ["resume", "session-id"])
 
+    def test_resolve_target_rewrites_codex_js_shim_to_host_node(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            host_dir = os.path.join(tmp, "host-bin")
+            os.makedirs(host_dir)
+            script_target = os.path.join(host_dir, "codex.js")
+            codex_target = os.path.join(host_dir, "codex")
+            node_target = os.path.join(host_dir, "node")
+            with open(script_target, "w", encoding="utf-8") as handle:
+                handle.write("#!/usr/bin/env node\nconsole.log('codex')\n")
+            with open(node_target, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            os.chmod(script_target, 0o755)
+            os.chmod(node_target, 0o755)
+            os.symlink("codex.js", codex_target)
+            from agent_jail.main import resolve_target
+
+            resolved = resolve_target(
+                ["codex", "resume", "session-id"],
+                {
+                    "PATH": host_dir,
+                    "AGENT_JAIL_ORIG_PATH": host_dir,
+                },
+            )
+        self.assertEqual(resolved[0], os.path.realpath(node_target))
+        self.assertEqual(resolved[1], os.path.realpath(script_target))
+        self.assertEqual(resolved[2:], ["resume", "session-id"])
+
     def test_run_uses_default_project_and_filesystem_roots_from_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = os.path.join(tmp, "repo")

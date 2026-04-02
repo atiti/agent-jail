@@ -69,7 +69,15 @@ def resolve_target(target_argv, env):
             continue
         resolved = shutil.which(candidate, path=path_value)
         if resolved:
-            return [os.path.realpath(resolved), *target_argv[1:]]
+            resolved = os.path.realpath(resolved)
+            # npm-installed CLIs like Codex are often `#!/usr/bin/env node`
+            # shims. Launch them via the host Node binary explicitly so the
+            # top-level bootstrap does not recurse back into the jailed PATH.
+            if candidate_name == "codex" and resolved.endswith(".js"):
+                node_path = shutil.which("node", path=env.get("AGENT_JAIL_ORIG_PATH") or path_value)
+                if node_path:
+                    return [os.path.realpath(node_path), resolved, *target_argv[1:]]
+            return [resolved, *target_argv[1:]]
     raise FileNotFoundError(candidate)
 
 
