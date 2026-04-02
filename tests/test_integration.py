@@ -163,7 +163,7 @@ class IntegrationTests(unittest.TestCase):
             server = BrokerServer(
                 sock_path,
                 store,
-                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"}}},
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"}}},
                 delegates=[
                     {
                         "name": "ops",
@@ -206,7 +206,7 @@ class IntegrationTests(unittest.TestCase):
             scripts_dir = os.path.join(repo_dir, "scripts")
             os.makedirs(scripts_dir)
             os.mkdir(real_dir)
-            script_path = os.path.join(scripts_dir, "unifi-api.sh")
+            script_path = os.path.join(scripts_dir, "service-health.sh")
             with open(script_path, "w", encoding="utf-8") as handle:
                 handle.write("#!/bin/sh\nprintf '%s\\n' \"$AGE_KEY_FILE\"\n")
             bash_path = os.path.join(real_dir, "bash")
@@ -219,7 +219,7 @@ class IntegrationTests(unittest.TestCase):
                 sock_path,
                 store,
                 mounts=[{"path": repo_dir, "mode": "rw"}],
-                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"}}},
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"}}},
                 delegates=[
                     {
                         "name": "local-secrets",

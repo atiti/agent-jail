@@ -26,7 +26,7 @@
 - Improved `agent-jail review list` to surface actionable pending reviews first, show reason/confidence/source context, and hide internal tooling noise by default unless `--all` is used.
 - Tightened JIT review gating so provider failures, transport errors, explicit rejects, and zero-confidence asks are denied directly instead of being persisted as pending manual reviews.
 - Fixed the session-local `agent-jail-cap` launcher to embed the repo root directly instead of depending on `AGENT_JAIL_SOURCE_ROOT`, so delegated commands keep working even if that environment variable is missing in a child process.
-- Tightened delegated ops UX by rejecting unsupported script-style entrypoints before they hit the runner, showing allowed tools in delegate denials, and emitting a local hint when `privateinfractl exec` is likely to remain in dry-run mode without `--approve`.
+- Tightened delegated inventory-tool UX by rejecting unsupported script-style entrypoints before they hit the runner, showing allowed tools in delegate denials, and emitting a local hint when `<tool> exec` is likely to remain in dry-run mode without `--approve`.
 - Added exact-path secret delegate matching for local scripts and taught shell syntax-check commands like `bash -n`/`zsh -n` to bypass secret-capability routing when they only validate syntax.
 - Added JIT approval for exact-path local secret-script delegates so `agent-jail review approve <id>` can persist a narrow script-specific delegate in `config.json` instead of forcing manual config edits.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
@@ -72,7 +72,7 @@
 - Added delegate support for tool-specific executors via `strip_tool_name`, plus jailed compatibility shims for `python`, `~/build`, and `~/workspace`.
 - Fixed the internal `agent-jail-cap` Python bootstrap path so delegated ops commands do not get stuck behind JIT review on their own bridge process.
 - Restored host-side `HOME` and `PATH` for delegated commands and added delegate `set_env` support so secret-backed local tooling can run outside the sandbox without exposing those files inside it.
-- Added optional delegate `auto_inventory_from_cwd` support so repo-local `privateinfractl` and `marksterctl` invocations inherit `--ops-root` and `--inventory-dir` automatically.
+- Added optional delegate `auto_inventory_from_cwd` support so repo-local inventory entrypoints can inherit `--ops-root` and `--inventory-dir` automatically.
 - Added implicit read-only access to local skill roots such as `~/.codex` and `~/.agents`, and made `agent-jail monitor --follow` use colored terminal output with less internal bridge noise.
 - Allowed the local `ati-cto` brief generator script invocation as a narrow read-only fast path so expected `python .../ati_cto_brief.py --local-only` probes do not fall into JIT review.
 - Added macOS controlling-terminal path discovery so interactive TUIs can access their active TTY device under `sandbox-exec`.

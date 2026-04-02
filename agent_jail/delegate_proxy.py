@@ -4,8 +4,6 @@ import threading
 
 from agent_jail.script_analysis import detect_secret_capabilities
 
-CONTROL_PLANE_TOOLS = {"privateinfractl", "marksterctl"}
-
 
 def _expand_delegate_env_value(value, env):
     if not isinstance(value, str):
@@ -54,11 +52,20 @@ def _inject_required_secret_env(env, delegate, command):
     return env
 
 
+def _inventory_tool_names(delegate):
+    configured = delegate.get("inventory_tools")
+    if configured:
+        return {os.path.basename(tool) for tool in configured if isinstance(tool, str) and tool}
+    if delegate.get("auto_inventory_from_cwd") and delegate.get("strip_tool_name"):
+        return {os.path.basename(tool) for tool in (delegate.get("allowed_tools") or []) if isinstance(tool, str) and tool}
+    return set()
+
+
 def _delegate_note(command):
     if not command:
         return None
     tool = os.path.basename(command[0])
-    if tool in CONTROL_PLANE_TOOLS and len(command) > 1 and command[1] == "exec" and "--approve" not in command:
+    if len(command) > 1 and command[1] == "exec" and "--approve" not in command:
         return f"{tool} exec defaults to dry-run; add --approve to execute and --elevated when required"
     return None
 
@@ -67,8 +74,9 @@ def _validate_delegate_command(delegate, command):
     if not command:
         raise PermissionError(f"delegate {delegate.get('name', 'unknown')} requires a command")
     tool = command[0]
-    if delegate.get("auto_inventory_from_cwd") and delegate.get("strip_tool_name") and tool not in CONTROL_PLANE_TOOLS:
-        expected = ", ".join(sorted(CONTROL_PLANE_TOOLS))
+    inventory_tools = _inventory_tool_names(delegate)
+    if delegate.get("auto_inventory_from_cwd") and delegate.get("strip_tool_name") and inventory_tools and tool not in inventory_tools:
+        expected = ", ".join(sorted(inventory_tools))
         raise PermissionError(
             f"delegate {delegate.get('name', 'unknown')} expects a control-plane tool entrypoint ({expected}), got {tool}"
         )
@@ -97,10 +105,11 @@ def _delegate_command_argv(delegate, command):
     argv = list(command)
     cwd = delegate.get("_cwd")
     auto_inventory = bool(delegate.get("auto_inventory_from_cwd"))
+    inventory_tools = _inventory_tool_names(delegate)
     if auto_inventory and command:
         tool = os.path.basename(command[0])
         inventory_dir = os.path.join(cwd or "", "inventory") if cwd else ""
-        if tool in {"privateinfractl", "marksterctl"} and cwd and os.path.isdir(inventory_dir):
+        if tool in inventory_tools and cwd and os.path.isdir(inventory_dir):
             has_ops_root = "--ops-root" in argv
             has_inventory_dir = "--inventory-dir" in argv
             defaults = []

@@ -150,7 +150,7 @@ Delegated commands run outside the sandbox with the host user's `HOME` and origi
   "secrets": {
     "age_key_file": {
       "env": {
-        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
+        "AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"
       }
     }
   },
@@ -158,9 +158,15 @@ Delegated commands run outside the sandbox with the host user's `HOME` and origi
     {
       "name": "ops",
       "mode": "execute",
-      "allowed_tools": ["privateinfractl", "python3", "./scripts/unifi-api.sh"],
-      "allowed_secrets": ["age_key_file"],
+      "allowed_tools": ["opsctl"],
+      "inventory_tools": ["opsctl"],
       "auto_inventory_from_cwd": true
+    },
+    {
+      "name": "local-secrets",
+      "mode": "execute",
+      "allowed_tools": ["python3", "./scripts/service-health.sh"],
+      "allowed_secrets": ["age_key_file"]
     }
   ]
 }
@@ -175,14 +181,14 @@ With that model:
 That keeps the secret material outside the jail while still allowing mediated commands like:
 
 ```bash
-agent-jail-cap delegate ops privateinfractl status --service nas-unifi-controller
-agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
-agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
+agent-jail-cap delegate ops opsctl status --service edge-gateway
+agent-jail-cap delegate local-secrets python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
+agent-jail-cap delegate local-secrets ./scripts/service-health.sh summary
 ```
 
 See [docs/delegates-and-secrets.md](docs/delegates-and-secrets.md) for the full pattern.
 
-If `auto_inventory_from_cwd` is enabled and the current repo has an `inventory/` directory, delegated `privateinfractl` and `marksterctl` commands automatically inherit:
+If `auto_inventory_from_cwd` is enabled and the current repo has an `inventory/` directory, delegated inventory-aware tools automatically inherit:
 
 ```bash
 --ops-root <cwd> --inventory-dir <cwd>/inventory

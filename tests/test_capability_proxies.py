@@ -40,11 +40,12 @@ class CapabilityProxyTests(unittest.TestCase):
                         "executor": "/usr/local/bin/delegate-exec",
                         "strip_tool_name": True,
                         "auto_inventory_from_cwd": True,
+                        "inventory_tools": ["opsctl"],
                         "_cwd": "/repo",
                     }
                 },
                 "ops",
-                ["./scripts/unifi-api.sh", "devices"],
+                ["./scripts/service-health.sh", "summary"],
             )
         self.assertIn("expects a control-plane tool entrypoint", str(exc.exception))
 
@@ -92,7 +93,7 @@ class CapabilityProxyTests(unittest.TestCase):
         self.assertEqual(mocked_run.call_args.kwargs["env"]["HOME"], "/Users/example")
         self.assertEqual(mocked_run.call_args.kwargs["env"]["PATH"], "/usr/bin:/bin")
 
-    def test_delegate_execute_adds_privateinfractl_dry_run_note_without_approve(self):
+    def test_delegate_execute_adds_inventory_tool_dry_run_note_without_approve(self):
         with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:
             mocked_run.return_value = mock.Mock(returncode=0, stdout="ok\n", stderr="")
             result = run_delegate_proxy(
@@ -101,13 +102,13 @@ class CapabilityProxyTests(unittest.TestCase):
                     "ops": {
                         "name": "ops",
                         "executor": "/usr/local/bin/delegate-exec",
-                        "allowed_tools": ["privateinfractl"],
+                        "allowed_tools": ["opsctl"],
                         "strip_tool_name": True,
                         "mode": "execute",
                     }
                 },
                 "ops",
-                ["privateinfractl", "exec", "--service", "svc", "--cmd", "uptime"],
+                ["opsctl", "exec", "--service", "svc", "--cmd", "uptime"],
             )
         self.assertIn("defaults to dry-run", result["note"])
 
@@ -165,14 +166,15 @@ class CapabilityProxyTests(unittest.TestCase):
                     "ops": {
                         "name": "ops",
                         "executor": "/usr/local/bin/delegate-exec",
-                        "allowed_tools": ["privateinfractl"],
+                        "allowed_tools": ["opsctl"],
+                        "inventory_tools": ["opsctl"],
                         "strip_tool_name": True,
                         "auto_inventory_from_cwd": True,
                         "_cwd": "/repo",
                     }
                 },
                 "ops",
-                ["privateinfractl", "status", "--service", "svc"],
+                ["opsctl", "status", "--service", "svc"],
             )
         self.assertEqual(
             result["delegated_command"],

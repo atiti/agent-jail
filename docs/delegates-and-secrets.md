@@ -17,7 +17,7 @@
   "secrets": {
     "age_key_file": {
       "env": {
-        "AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"
+        "AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"
       }
     }
   },
@@ -25,9 +25,15 @@
     {
       "name": "ops",
       "mode": "execute",
-      "allowed_tools": ["privateinfractl", "python3", "./scripts/unifi-api.sh"],
-      "allowed_secrets": ["age_key_file"],
+      "allowed_tools": ["opsctl"],
+      "inventory_tools": ["opsctl"],
       "auto_inventory_from_cwd": true
+    },
+    {
+      "name": "local-secrets",
+      "mode": "execute",
+      "allowed_tools": ["python3", "./scripts/service-health.sh"],
+      "allowed_secrets": ["age_key_file"]
     }
   ]
 }
@@ -35,16 +41,16 @@
 
 With that config:
 
-- `python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` is denied in the sandbox with a hint to rerun through `agent-jail-cap delegate ops ...`
-- `agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` receives `AGE_KEY_FILE` from the configured `age_key_file` secret capability
+- `python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` is denied in the sandbox with a hint to rerun through `agent-jail-cap delegate local-secrets ...`
+- `agent-jail-cap delegate local-secrets python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"` receives `AGE_KEY_FILE` from the configured `age_key_file` secret capability
 - unrelated configured secrets are not injected unless the delegated command references their env vars
 
 These commands stay mediated even though they rely on host-side secrets:
 
 ```bash
-agent-jail-cap delegate ops privateinfractl status --service nas-unifi-controller
-agent-jail-cap delegate ops python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
-agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
+agent-jail-cap delegate ops opsctl status --service edge-gateway
+agent-jail-cap delegate local-secrets python3 -c "import os; print(os.environ['AGE_KEY_FILE'])"
+agent-jail-cap delegate local-secrets ./scripts/service-health.sh summary
 ```
 
 ## Notes
@@ -52,5 +58,5 @@ agent-jail-cap delegate ops ./scripts/unifi-api.sh devices
 - `secrets` and any secret-bearing env mappings are local configuration and should not be committed to a public repo.
 - `allowed_secrets` scopes which secret capabilities a delegate may receive.
 - Delegates restore the host user's `HOME` and original `PATH` automatically.
-- If `auto_inventory_from_cwd` is enabled and the current working directory contains `inventory/`, delegated `privateinfractl` and `marksterctl` commands inherit `--ops-root <cwd> --inventory-dir <cwd>/inventory`.
+- If `auto_inventory_from_cwd` is enabled and the current working directory contains `inventory/`, delegated inventory-aware tools inherit `--ops-root <cwd> --inventory-dir <cwd>/inventory`.
 - The secret files remain unreadable from inside the sandboxed session itself.

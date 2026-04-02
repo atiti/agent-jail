@@ -158,7 +158,7 @@ class CapabilityCLITests(unittest.TestCase):
         self.assertIn("does not allow tool python3", proc.stderr)
         self.assertIn("allowed tools: opsctl", proc.stderr)
 
-    def test_delegate_execute_privateinfractl_exec_emits_dry_run_hint(self):
+    def test_delegate_execute_inventory_tool_exec_emits_dry_run_hint(self):
         with tempfile.TemporaryDirectory() as tmp:
             sock_path = os.path.join(tmp, "broker.sock")
             script_path = os.path.join(tmp, "delegate-exec")
@@ -174,7 +174,7 @@ class CapabilityCLITests(unittest.TestCase):
                     {
                         "name": "ops",
                         "executor": script_path,
-                        "allowed_tools": ["privateinfractl"],
+                        "allowed_tools": ["opsctl"],
                         "strip_tool_name": True,
                         "mode": "execute",
                     }
@@ -185,7 +185,7 @@ class CapabilityCLITests(unittest.TestCase):
             self.addCleanup(server.close)
             env = os.environ.copy()
             env["AGENT_JAIL_SOCKET"] = sock_path
-            proc = self.run_cap("delegate", "ops", "privateinfractl", "exec", "--service", "svc", "--cmd", "uptime", env=env)
+            proc = self.run_cap("delegate", "ops", "opsctl", "exec", "--service", "svc", "--cmd", "uptime", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("defaults to dry-run", proc.stderr)
 

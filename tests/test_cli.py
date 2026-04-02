@@ -1007,7 +1007,7 @@ class CLITests(unittest.TestCase):
             env["AGENT_JAIL_HOME"] = tmp
             policy_path = os.path.join(tmp, "policy.json")
             config_path = os.path.join(tmp, "config.json")
-            script_path = "/Users/Shared/workspaces/private-infra/scripts/unifi-api.sh"
+            script_path = "/Users/example/demo-project/scripts/service-health.sh"
             with open(policy_path, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
@@ -1016,14 +1016,14 @@ class CLITests(unittest.TestCase):
                             {
                                 "id": "review-1",
                                 "kind": "delegate-config",
-                                "tool": "unifi-api.sh",
+                                "tool": "service-health.sh",
                                 "action": "secret-delegate",
                                 "raw": f"{script_path} wifi-health --format text",
                                 "template": script_path,
                                 "script_path": script_path,
                                 "secret_capability": "age_key_file",
                                 "delegate": {
-                                    "name": "local-secret-unifi-api-sh-age-key-file",
+                                    "name": "local-secret-service-health-sh-age-key-file",
                                     "allowed_tools": [script_path],
                                     "allowed_secrets": ["age_key_file"],
                                     "mode": "execute",
@@ -1042,7 +1042,7 @@ class CLITests(unittest.TestCase):
                 config = json.load(handle)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(policy["pending_reviews"], [])
-        self.assertEqual(config["delegates"][0]["name"], "local-secret-unifi-api-sh-age-key-file")
+        self.assertEqual(config["delegates"][0]["name"], "local-secret-service-health-sh-age-key-file")
         self.assertEqual(config["delegates"][0]["allowed_tools"], [script_path])
         self.assertEqual(config["delegates"][0]["allowed_secrets"], ["age_key_file"])
 

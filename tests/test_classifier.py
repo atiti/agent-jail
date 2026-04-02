@@ -15,7 +15,7 @@ class ClassifierTests(unittest.TestCase):
         ]
         self.secrets = {
             "age_key_file": {
-                "env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"},
+                "env": {"AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"},
             }
         }
 
@@ -232,7 +232,7 @@ class ClassifierTests(unittest.TestCase):
             "/Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py",
             "--local-only",
             "--scope",
-            "privateinfra",
+            "operations",
         ]
         intent = normalize(argv)
         verdict = classify(intent, argv)

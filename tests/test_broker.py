@@ -420,9 +420,9 @@ class BrokerTests(unittest.TestCase):
                         "/Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py",
                         "--local-only",
                         "--scope",
-                        "privateinfra",
+                        "operations",
                     ],
-                    "raw": "python3 /Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py --local-only --scope privateinfra",
+                    "raw": "python3 /Users/example/.codex/skills/ati-cto/scripts/ati_cto_brief.py --local-only --scope operations",
                     "cwd": tmp,
                 }
             )
@@ -443,7 +443,7 @@ class BrokerTests(unittest.TestCase):
                     {
                         "name": "ops",
                         "executor": "/usr/local/bin/delegate-exec",
-                        "allowed_tools": ["privateinfractl"],
+                        "allowed_tools": ["opsctl"],
                         "allowed_secrets": ["age_key_file"],
                     },
                     {
@@ -482,7 +482,7 @@ class BrokerTests(unittest.TestCase):
             broker = BrokerServer(
                 os.path.join(tmp, "broker.sock"),
                 store,
-                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.marksterctl/age/keys.txt"}}},
+                secrets={"age_key_file": {"env": {"AGE_KEY_FILE": "~/.config/agent-jail-demo/age-keys.txt"}}},
                 delegates=[
                     {
                         "name": "ops",
@@ -517,7 +517,7 @@ class BrokerTests(unittest.TestCase):
                     {
                         "name": "ops",
                         "executor": "/usr/local/bin/delegate-exec",
-                        "allowed_tools": ["privateinfractl"],
+                        "allowed_tools": ["opsctl"],
                         "allowed_secrets": ["age_key_file"],
                     }
                 ],

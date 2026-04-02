@@ -68,12 +68,12 @@ class EventTests(unittest.TestCase):
             {
                 "action": "deny",
                 "category": "capability",
-                "raw": "bash ./scripts/unifi-api.sh wifi-health --format text",
+                "raw": "bash ./scripts/service-health.sh summary --format text",
                 "phase": "exit",
                 "reason": "returncode=1",
             }
         )
         self.assertEqual(
             rendered,
-            "[DENY][capability][exit] bash ./scripts/unifi-api.sh wifi-health --format text (returncode=1)",
+            "[DENY][capability][exit] bash ./scripts/service-health.sh summary --format text (returncode=1)",
         )
