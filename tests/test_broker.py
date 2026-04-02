@@ -440,6 +440,7 @@ class BrokerTests(unittest.TestCase):
             result = broker.handle({"type": "exec", "argv": [script_path], "raw": script_path, "cwd": tmp})
         self.assertEqual(result["decision"], "deny")
         self.assertIn("agent-jail-cap delegate local-secrets", result["reason"])
+        self.assertIn(f"rerun: agent-jail-cap delegate local-secrets {script_path}", result["reason"])
 
     def test_read_guard_denies_python_literal_read_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -507,6 +508,7 @@ class BrokerTests(unittest.TestCase):
             result = broker.handle({"type": "exec", "argv": [script_path, "wifi-health"], "raw": f"{script_path} wifi-health", "cwd": tmp})
         self.assertEqual(result["decision"], "deny")
         self.assertIn("secret-delegate-review-required", result["reason"])
+        self.assertIn(f"rerun after approval: agent-jail-cap delegate local-secret-wifi-health-sh-age-key-file {script_path} wifi-health", result["reason"])
         self.assertEqual(len(store.pending_reviews), 1)
         review = store.pending_reviews[0]
         self.assertEqual(review["kind"], "delegate-config")

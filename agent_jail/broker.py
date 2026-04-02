@@ -477,9 +477,10 @@ def _secret_env_capability_violation(argv, context, analysis, delegates, secrets
         }
     if chosen:
         names = ", ".join(capabilities)
+        rerun = shlex.join(["agent-jail-cap", "delegate", chosen.get("name"), *argv])
         return {
             "risk": "high",
-            "reason": f"secret capability required: {names}; use agent-jail-cap delegate {chosen.get('name')} {' '.join(argv)}",
+            "reason": f"secret capability required: {names}; rerun: {rerun}",
             "category": "secret-capability",
         }
     names = ", ".join(capabilities)
@@ -824,7 +825,8 @@ class BrokerServer:
                     "decision": "deny",
                     "reason": (
                         f"secret-delegate-review-required[{pending['id']}]: "
-                        f"approve to add {pending['delegate']['name']} for {pending['script_path']}"
+                        f"approve to add {pending['delegate']['name']} for {pending['script_path']}; "
+                        f"rerun after approval: {shlex.join(['agent-jail-cap', 'delegate', pending['delegate']['name'], *effective_argv])}"
                     ),
                 }
             self._log(
