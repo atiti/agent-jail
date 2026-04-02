@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest import mock
 
-from agent_jail.main import _format_review_list, _format_suggestion_report, _review_suggestions_interactively
+from agent_jail.main import _format_review_list, _format_suggestion_report, _review_suggestions_interactively, render_cap_launcher
 from agent_jail.policy import PolicyStore
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -381,6 +381,13 @@ class CLITests(unittest.TestCase):
         self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
         self.assertIsNone(values["ALL_PROXY"])
         self.assertIsNone(values["SOCKS_PROXY"])
+
+    def test_render_cap_launcher_embeds_repo_root_without_env_dependency(self):
+        script = render_cap_launcher("/tmp/repo-root", "/usr/bin/python3")
+        self.assertIn('REPO_ROOT="/tmp/repo-root"', script)
+        self.assertIn('PYTHON_BIN="/usr/bin/python3"', script)
+        self.assertNotIn("AGENT_JAIL_SOURCE_ROOT", script)
+        self.assertIn('exec "$PYTHON_BIN" -m agent_jail.cap_cli "$@"', script)
 
     def test_run_with_proxy_mode_socks_sets_socks_and_all_proxy_env(self):
         with tempfile.TemporaryDirectory() as tmp:

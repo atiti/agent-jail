@@ -27,6 +27,19 @@ ANSI_YELLOW = "\033[33m"
 DEFAULT_KILL_SWITCH = "/tmp/agent-jail.stop"
 DARWIN_SYSTEM_ROOT_KEYCHAIN = "/System/Library/Keychains/SystemRootCertificates.keychain"
 DARWIN_SYSTEM_ROOT_PEM_NAME = "macos-system-roots.pem"
+CAP_LAUNCHER_TEMPLATE = """#!/bin/sh
+
+REPO_ROOT="{repo_root}"
+PYTHON_BIN="{python_bin}"
+
+if [ -n "$PYTHONPATH" ]; then
+  export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
+else
+  export PYTHONPATH="$REPO_ROOT"
+fi
+
+exec "$PYTHON_BIN" -m agent_jail.cap_cli "$@"
+"""
 
 
 def resolve_python():
@@ -48,6 +61,13 @@ def resolve_target(target_argv, env):
     if resolved:
         return [os.path.realpath(resolved), *target_argv[1:]]
     raise FileNotFoundError(candidate)
+
+
+def render_cap_launcher(repo_root, python_bin):
+    return CAP_LAUNCHER_TEMPLATE.format(
+        repo_root=repo_root.replace('"', '\\"'),
+        python_bin=python_bin.replace('"', '\\"'),
+    )
 
 
 TARGET_ENV_PROFILES = {
@@ -826,8 +846,8 @@ def run(argv=None):
         broker_thread.start()
         write_wrappers(wrapper_dir, source_path=os.environ.get("PATH", ""), python_executable=python_executable)
         cap_target = os.path.join(wrapper_dir, "agent-jail-cap")
-        source_cap = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent-jail-cap")
-        shutil.copy2(source_cap, cap_target)
+        with open(cap_target, "w", encoding="utf-8") as handle:
+            handle.write(render_cap_launcher(source_root, python_executable))
         os.chmod(cap_target, 0o755)
         auth_mounts = prepare_home_mounts(
             home,
