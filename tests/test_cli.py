@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest import mock
 
-from agent_jail.main import _format_suggestion_report, _review_suggestions_interactively
+from agent_jail.main import _format_review_list, _format_suggestion_report, _review_suggestions_interactively
 from agent_jail.policy import PolicyStore
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -916,6 +916,30 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("review-1", proc.stdout)
         self.assertIn("tree *", proc.stdout)
+
+    def test_review_list_hides_internal_noise_by_default(self):
+        text = _format_review_list(
+            [
+                {"id": "review-1", "tool": "tree", "action": "exec", "template": "tree *", "reason": "safe", "confidence": 0.8, "source": "stub_jit"},
+                {"id": "review-2", "tool": "codex", "action": "exec", "template": "codex *", "reason": "internal", "confidence": 0.8, "source": "stub_jit"},
+            ],
+            show_all=False,
+            color=False,
+        )
+        self.assertIn("review-1", text)
+        self.assertNotIn("review-2", text)
+        self.assertIn("hidden internal reviews: 1", text)
+
+    def test_review_list_can_show_internal_noise_with_all(self):
+        text = _format_review_list(
+            [
+                {"id": "review-1", "tool": "codex", "action": "exec", "template": "codex *", "reason": "internal", "confidence": 0.8, "source": "stub_jit"},
+            ],
+            show_all=True,
+            color=False,
+        )
+        self.assertIn("review-1", text)
+        self.assertIn("reason: internal", text)
 
     def test_review_approve_adds_rule(self):
         with tempfile.TemporaryDirectory() as tmp:

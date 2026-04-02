@@ -160,6 +160,7 @@ CATEGORY_COLORS = {
     "policy": "\033[35m",
     "network": "\033[34m",
     "jit": "\033[33m",
+    "review": "\033[35m",
     "capability": "\033[34m",
     "sensitive-delegate": "\033[31m",
     "read-scope": "\033[31m",

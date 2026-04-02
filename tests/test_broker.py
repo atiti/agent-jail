@@ -1,6 +1,8 @@
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 
 from agent_jail.broker import BrokerServer, normalize
@@ -62,17 +64,18 @@ class BrokerTests(unittest.TestCase):
                 broker = BrokerServer(
                     os.path.join(tmp, "broker.sock"),
                     store,
-                    jit_engine=_StubJIT(
-                        {
-                            "decision_hint": "ask",
-                            "confidence": 0.4,
-                            "reason": "Unknown low-impact command.",
-                            "source": "stub_jit",
-                            "cached": False,
-                        }
-                    ),
-                    event_sink=sink,
-                )
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.4,
+                        "reason": "Unknown low-impact command.",
+                        "source": "stub_jit",
+                        "cached": False,
+                    }
+                ),
+                event_sink=sink,
+                review_wait_timeout=0.2,
+            )
                 result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
             finally:
                 sink.close()
@@ -98,10 +101,11 @@ class BrokerTests(unittest.TestCase):
                         "reason": "Unknown low-impact command.",
                     }
                 ),
+                review_wait_timeout=0.2,
             )
             result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
         self.assertEqual(result["decision"], "deny")
-        self.assertIn("jit-review-required", result["reason"])
+        self.assertIn("jit-review-timeout", result["reason"])
         self.assertEqual(len(store.pending_reviews), 1)
 
     def test_jit_pending_reviews_are_deduplicated_by_template(self):
@@ -125,12 +129,124 @@ class BrokerTests(unittest.TestCase):
                         },
                     }
                 ),
+                review_wait_timeout=0.2,
             )
             first = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
             second = broker.handle({"type": "exec", "argv": ["tree", "-L", "3"], "raw": "tree -L 3", "cwd": tmp})
         self.assertEqual(len(store.pending_reviews), 1)
         self.assertIn(store.pending_reviews[0]["id"], first["reason"])
         self.assertIn(store.pending_reviews[0]["id"], second["reason"])
+
+    def test_jit_waits_for_manual_review_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.4,
+                        "reason": "Unknown low-impact command.",
+                        "rule": {
+                            "kind": "exec",
+                            "tool": "tree",
+                            "action": "exec",
+                            "allow": True,
+                            "constraints": {},
+                            "metadata": {"template": "tree *"},
+                        },
+                    }
+                ),
+                review_wait_timeout=1.0,
+            )
+            result_box = {}
+
+            def run_handle():
+                result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+
+            thread = threading.Thread(target=run_handle)
+            thread.start()
+            for _ in range(20):
+                store.reload()
+                if store.pending_reviews:
+                    break
+                time.sleep(0.05)
+            self.assertTrue(store.pending_reviews)
+            pending = store.pending_reviews[0]
+            store.add_rule(pending["rule"])
+            store.remove_pending_review(pending["id"])
+            thread.join()
+        self.assertEqual(result_box["result"]["decision"], "allow")
+        self.assertIn("review-approved", result_box["result"]["reason"])
+
+    def test_jit_waits_for_manual_review_rejection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.4,
+                        "reason": "Unknown low-impact command.",
+                        "rule": {
+                            "kind": "exec",
+                            "tool": "tree",
+                            "action": "exec",
+                            "allow": True,
+                            "constraints": {},
+                            "metadata": {"template": "tree *"},
+                        },
+                    }
+                ),
+                review_wait_timeout=1.0,
+            )
+            result_box = {}
+
+            def run_handle():
+                result_box["result"] = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+
+            thread = threading.Thread(target=run_handle)
+            thread.start()
+            for _ in range(20):
+                store.reload()
+                if store.pending_reviews:
+                    break
+                time.sleep(0.05)
+            self.assertTrue(store.pending_reviews)
+            store.remove_pending_review(store.pending_reviews[0]["id"])
+            thread.join()
+        self.assertEqual(result_box["result"]["decision"], "deny")
+        self.assertIn("jit-review-rejected", result_box["result"]["reason"])
+
+    def test_jit_waits_for_manual_review_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT(
+                    {
+                        "decision_hint": "ask",
+                        "confidence": 0.4,
+                        "reason": "Unknown low-impact command.",
+                        "rule": {
+                            "kind": "exec",
+                            "tool": "tree",
+                            "action": "exec",
+                            "allow": True,
+                            "constraints": {},
+                            "metadata": {"template": "tree *"},
+                        },
+                    }
+                ),
+                review_wait_timeout=0.2,
+            )
+            result = broker.handle({"type": "exec", "argv": ["tree", "-L", "2"], "raw": "tree -L 2", "cwd": tmp})
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("jit-review-timeout", result["reason"])
 
     def test_jit_review_uses_semantic_template_for_python_script(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,6 +269,7 @@ class BrokerTests(unittest.TestCase):
                         },
                     }
                 ),
+                review_wait_timeout=0.2,
             )
             result = broker.handle(
                 {
@@ -170,7 +287,7 @@ class BrokerTests(unittest.TestCase):
                 }
             )
         self.assertEqual(result["decision"], "deny")
-        self.assertIn("jit-review-required", result["reason"])
+        self.assertIn("jit-review-timeout", result["reason"])
         self.assertEqual(store.pending_reviews[0]["tool"], "python3")
         self.assertEqual(store.pending_reviews[0]["template"], "python read-only subprocess script")
         self.assertEqual(store.pending_reviews[0]["rule"]["constraints"]["template"], "python read-only subprocess script")

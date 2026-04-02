@@ -20,6 +20,10 @@ from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
 from agent_jail.rule_suggestions import apply_suggestions, build_rule_suggestions
 from agent_jail.wrappers import write_wrappers
 
+ANSI_RESET = "\033[0m"
+ANSI_DIM = "\033[2m"
+ANSI_YELLOW = "\033[33m"
+
 DEFAULT_KILL_SWITCH = "/tmp/agent-jail.stop"
 DARWIN_SYSTEM_ROOT_KEYCHAIN = "/System/Library/Keychains/SystemRootCertificates.keychain"
 DARWIN_SYSTEM_ROOT_PEM_NAME = "macos-system-roots.pem"
@@ -270,6 +274,7 @@ def parse_args(argv=None):
     review_sub = review.add_subparsers(dest="review_command", required=True)
     review_list = review_sub.add_parser("list")
     review_list.add_argument("--json", action="store_true")
+    review_list.add_argument("--all", action="store_true")
     review_approve = review_sub.add_parser("approve")
     review_approve.add_argument("review_id")
     review_reject = review_sub.add_parser("reject")
@@ -581,6 +586,63 @@ def review_rule_from_pending(review):
     }
 
 
+def _is_internal_review(review):
+    tool = review.get("tool") or ""
+    template = review.get("template") or ""
+    raw = review.get("raw") or ""
+    if tool in {"codex", "claude"}:
+        return True
+    if tool == "node" and ("codex" in raw or "approved-script" in template):
+        return True
+    if ".agent-jail/.codex/.tmp/plugins" in raw or ".agent-jail/.codex/.tmp/plugins" in template:
+        return True
+    if ".agent-jail/workspace" in raw or ".agent-jail/workspace" in template:
+        return True
+    return False
+
+
+def _review_sort_key(review):
+    confidence = review.get("confidence")
+    if confidence is None:
+        confidence_value = -1.0
+    else:
+        confidence_value = float(confidence)
+    return (_is_internal_review(review), -confidence_value, review.get("tool", ""), review.get("template", ""), review.get("id", ""))
+
+
+def _colorize(text, color, enabled):
+    if not enabled:
+        return text
+    return f"{color}{text}{ANSI_RESET}"
+
+
+def _format_review_list(reviews, show_all=False, color=False):
+    visible = sorted(reviews, key=_review_sort_key)
+    if not show_all:
+        visible = [review for review in visible if not _is_internal_review(review)]
+    hidden_count = len(reviews) - len(visible)
+    lines = [f"pending: {len(reviews)}"]
+    if not visible:
+        lines.append("no actionable pending reviews" if hidden_count else "none")
+    for review in visible:
+        template = review.get("template") or review.get("raw") or ""
+        confidence = review.get("confidence")
+        confidence_text = ""
+        if confidence is not None:
+            confidence_text = f" | conf={float(confidence):.2f}"
+        source = review.get("source")
+        source_text = f" | {source}" if source else ""
+        header = f"- {review['id']} | {review.get('tool')} {review.get('action')} | {template}{confidence_text}{source_text}"
+        header = _colorize(header, ANSI_DIM if _is_internal_review(review) else ANSI_YELLOW, color)
+        lines.append(header)
+        reason = review.get("reason")
+        if reason:
+            lines.append(f"  reason: {reason}")
+    if hidden_count and not show_all:
+        lines.append(_colorize(f"hidden internal reviews: {hidden_count} (use --all)", ANSI_DIM, color))
+    return "\n".join(lines)
+
+
 def handle_review(args):
     home = ensure_home()
     store = PolicyStore(os.path.join(home, "policy.json"))
@@ -589,10 +651,7 @@ def handle_review(args):
         if args.json:
             print(json.dumps(reviews, indent=2, sort_keys=True))
         else:
-            print(f"pending: {len(reviews)}")
-            for review in reviews:
-                template = review.get("template") or review.get("raw")
-                print(f"- {review['id']} | {review.get('tool')} {review.get('action')} | {template}")
+            print(_format_review_list(reviews, show_all=args.all, color=sys.stdout.isatty()))
         return 0
     review = store.get_pending_review(args.review_id)
     if not review:

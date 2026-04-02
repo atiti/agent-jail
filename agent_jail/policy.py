@@ -20,6 +20,10 @@ class PolicyStore:
                 return json.load(handle)
         return {"rules": []}
 
+    def reload(self):
+        self.data = self._load()
+        return self.data
+
     def save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as handle:

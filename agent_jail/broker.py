@@ -5,6 +5,7 @@ import shlex
 import socket
 import sys
 import threading
+import time
 from socketserver import StreamRequestHandler, ThreadingUnixStreamServer
 
 from agent_jail.browser_proxy import run_browser_proxy
@@ -582,6 +583,7 @@ class BrokerServer:
         llm_policy=None,
         jit_engine=None,
         secrets=None,
+        review_wait_timeout=300.0,
     ):
         self.path = path
         self.policy_store = policy_store
@@ -594,6 +596,7 @@ class BrokerServer:
         self.log_stderr = log_stderr
         self.jit_engine = jit_engine or JITRuleEngine(llm_policy or {})
         self.secrets = secrets or {}
+        self.review_wait_timeout = float(review_wait_timeout)
 
     def serve_forever(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -616,6 +619,70 @@ class BrokerServer:
     def _write_frame(self, wfile, payload):
         wfile.write((json.dumps(payload) + "\n").encode("utf-8"))
         wfile.flush()
+
+    def _wait_for_review_resolution(self, review_id, intent, raw, template):
+        deadline = time.monotonic() + self.review_wait_timeout
+        self._log(
+            "ASK",
+            raw,
+            "review",
+            kind="exec",
+            tool=intent["tool"],
+            verb=intent["action"],
+            template=template,
+            risk="jit",
+            review_id=review_id,
+            phase="wait",
+            reason="waiting for manual review",
+        )
+        while time.monotonic() < deadline:
+            self.policy_store.reload()
+            matched = self.policy_store.match(intent)
+            if matched and matched["allow"]:
+                self._log(
+                    "ALLOW",
+                    raw,
+                    "review",
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    review_id=review_id,
+                    phase="approved",
+                    reason="manual review approved",
+                )
+                return {"decision": "allow", "reason": f"review-approved[{review_id}]"}
+            if self.policy_store.get_pending_review(review_id) is None:
+                self._log(
+                    "DENY",
+                    raw,
+                    "review",
+                    kind="exec",
+                    tool=intent["tool"],
+                    verb=intent["action"],
+                    template=template,
+                    risk="jit",
+                    review_id=review_id,
+                    phase="rejected",
+                    reason="manual review rejected",
+                )
+                return {"decision": "deny", "reason": f"jit-review-rejected[{review_id}]"}
+            time.sleep(0.2)
+        self._log(
+            "ASK",
+            raw,
+            "review",
+            kind="exec",
+            tool=intent["tool"],
+            verb=intent["action"],
+            template=template,
+            risk="jit",
+            review_id=review_id,
+            phase="timeout",
+            reason=f"review wait timed out after {int(self.review_wait_timeout)}s",
+        )
+        return {"decision": "deny", "reason": f"jit-review-timeout[{review_id}]"}
 
     def handle(self, request, wfile=None):
         req_type = request.get("type")
@@ -831,10 +898,11 @@ class BrokerServer:
                     "template": ((jit.get("rule") or {}).get("metadata") or {}).get("template", template),
                     "reason": jit.get("reason", "unknown low-impact command"),
                     "confidence": jit.get("confidence"),
+                    "source": jit.get("source"),
                     "rule": _review_rule_with_template(jit.get("rule"), intent.get("template")),
                 }
             )
-            return {"decision": "deny", "reason": f"jit-review-required[{pending['id']}]: {jit.get('reason', 'unknown low-impact command')}"}
+            return self._wait_for_review_resolution(pending["id"], intent, raw, template)
         if risk == "high":
             self.policy_store.learn(intent)
             self._log(

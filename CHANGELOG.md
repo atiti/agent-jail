@@ -22,6 +22,8 @@
 - Changed `agent-jail run` to enable proxying by default, with `--no-proxy` available as an explicit escape hatch and config support to persist the run default.
 - Changed `agent-jail monitor` to read all active sessions by default, added `--session` filtering, tagged events with the agent-jail session id, and started emitting delegate start/exit lifecycle events instead of hiding delegated command execution entirely.
 - Added explicit `INFO[jit]` monitor events so `agent-jail monitor --follow` shows when the broker consults the LLM for low-risk command evaluation and what the returned decision hint/confidence/source was before the final allow/ask/deny event.
+- Changed `ASK` handling for low-risk JIT reviews to block the original command for up to five minutes while waiting for `agent-jail review approve|reject`, with explicit review wait/approved/rejected/timeout monitor events.
+- Improved `agent-jail review list` to surface actionable pending reviews first, show reason/confidence/source context, and hide internal tooling noise by default unless `--all` is used.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.
