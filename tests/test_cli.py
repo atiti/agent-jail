@@ -267,7 +267,7 @@ class CLITests(unittest.TestCase):
                 (
                     "import json, os, subprocess; "
                     "parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}; "
-                    "child=json.loads(subprocess.check_output(['zsh','-lc',"
+                    "child=json.loads(subprocess.check_output(['bash','-lc',"
                     "\"python3 -c \\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\"\""
                     "], text=True)); "
                     "print(json.dumps({'parent': parent, 'child': child}, sort_keys=True))"
@@ -306,7 +306,7 @@ class CLITests(unittest.TestCase):
                     "node_result=json.loads(subprocess.check_output(['node','-c',"
                     "\"import json, os, subprocess; "
                     "node_parent={k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY','http_proxy','https_proxy','REQUESTS_CA_BUNDLE','AGENT_JAIL_HTTP_PROXY','AGENT_JAIL_SOCKS_PROXY','AGENT_JAIL_SESSION_PROXY_ENV')}; "
-                    "child=json.loads(subprocess.check_output(['zsh','-lc',"
+                    "child=json.loads(subprocess.check_output(['bash','-lc',"
                     "\\\"python3 -c \\\\\\\"import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','SOCKS_PROXY')}, sort_keys=True))\\\\\\\"\\\""
                     "], text=True)); "
                     "print(json.dumps({'node_parent': node_parent, 'child': child}, sort_keys=True))\""

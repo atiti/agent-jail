@@ -29,6 +29,7 @@
 - Tightened delegated ops UX by rejecting unsupported script-style entrypoints before they hit the runner, showing allowed tools in delegate denials, and emitting a local hint when `privateinfractl exec` is likely to remain in dry-run mode without `--approve`.
 - Added exact-path secret delegate matching for local scripts and taught shell syntax-check commands like `bash -n`/`zsh -n` to bypass secret-capability routing when they only validate syntax.
 - Added JIT approval for exact-path local secret-script delegates so `agent-jail review approve <id>` can persist a narrow script-specific delegate in `config.json` instead of forcing manual config edits.
+- Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.
 - Added proxy decision events so `agent-jail monitor --follow` shows network allow/deny activity from both HTTP and SOCKS listeners.
 - Hardened HTTP `CONNECT` tunneling by flushing the tunnel handoff and clearing connect-phase socket timeouts, reducing proxy-induced TLS and long-lived stream failures.
