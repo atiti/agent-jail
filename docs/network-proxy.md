@@ -45,7 +45,10 @@ Start a session with proxying enabled:
 
 ```bash
 python3 agent-jail run --proxy codex --dangerously-bypass-approvals-and-sandbox
-python3 agent-jail run --proxy --deny-network-by-default claude --allow-dangerously-skip-permissions
+python3 agent-jail run --proxy --deny-network-by-default claude --dangerously-skip-permissions
+
+For Claude, `--dangerously-skip-permissions` actually enables bypass mode.
+`--allow-dangerously-skip-permissions` only makes bypass mode selectable later.
 ```
 
 Inside the session:

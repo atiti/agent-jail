@@ -219,6 +219,20 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(verdict["risk"], "low")
         self.assertEqual(verdict["category"], "agent-launch")
 
+    def test_classify_claude_dangerous_bypass_flag_as_agent_launch(self):
+        argv = ["claude", "--dangerously-skip-permissions"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "agent-launch")
+
+    def test_classify_claude_local_binary_dangerous_bypass_flag_as_agent_launch(self):
+        argv = ["/Users/example/.local/share/claude/versions/2.1.91", "--dangerously-skip-permissions"]
+        intent = normalize(argv)
+        verdict = classify(intent, argv)
+        self.assertEqual(verdict["risk"], "low")
+        self.assertEqual(verdict["category"], "agent-launch")
+
     def test_classify_node_codex_launcher_as_agent_launch(self):
         argv = ["node", "/opt/codex/bin/codex.js", "--dangerously-bypass-approvals-and-sandbox"]
         intent = normalize(argv)

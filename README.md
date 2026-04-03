@@ -114,7 +114,7 @@ Run an agent under `agent-jail`:
 
 ```bash
 python3 agent-jail run codex --dangerously-bypass-approvals-and-sandbox
-python3 agent-jail run claude --allow-dangerously-skip-permissions
+python3 agent-jail run claude --dangerously-skip-permissions
 ```
 
 Those flags belong to the underlying agent CLIs, not to `agent-jail`. `agent-jail run ...` forwards them so the outer brokered session can stay in control while the inner agent runs non-interactively.
@@ -130,6 +130,9 @@ python3 agent-jail run \
   --allow-delegate ops \
   --allow-browser \
   codex --dangerously-bypass-approvals-and-sandbox
+
+For Claude, `--dangerously-skip-permissions` is the active bypass flag.
+`--allow-dangerously-skip-permissions` only enables bypass mode as an available option; it does not enable it by default.
 ```
 
 Use the mediated capability command surface inside a session:
@@ -204,7 +207,7 @@ Run with the built-in proxy enabled:
 
 ```bash
 python3 agent-jail run --proxy codex --dangerously-bypass-approvals-and-sandbox
-python3 agent-jail run --proxy --deny-network-by-default claude --allow-dangerously-skip-permissions
+python3 agent-jail run --proxy --deny-network-by-default claude --dangerously-skip-permissions
 ```
 
 Manage network rules from the CLI:

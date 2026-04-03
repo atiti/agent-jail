@@ -36,7 +36,7 @@
 - Documented the macOS launcher split between top-level host binaries and wrapped child-process tooling, plus the intended use of config-driven `home_mounts` and narrow `git_ssh_hosts`.
 - Redacted secret-like env assignments and injected secret values from delegated command headers, capability lifecycle events, and non-stream delegate result payloads.
 - Truncated oversized human-readable monitor lines so `agent-jail monitor --follow` and delegate stderr headers do not keep dumping giant command strings into terminal scrollback.
-- Updated the public docs to show the exact non-interactive bypass flags for Codex (`--dangerously-bypass-approvals-and-sandbox`) and Claude (`--allow-dangerously-skip-permissions`) in `agent-jail run` examples.
+- Updated the public docs to show the correct active bypass flags for Codex (`--dangerously-bypass-approvals-and-sandbox`) and Claude (`--dangerously-skip-permissions`), and clarified that Claude's `--allow-dangerously-skip-permissions` only makes bypass mode selectable rather than enabling it by default.
 - Treated Claude's `--allow-dangerously-skip-permissions` the same way as Codex's bypass flag in the agent-launch heuristic so top-level agent startup no longer falls through to JIT review.
 - Stopped hiding agent-launch bypass reviews from `agent-jail review list` when they do exist, even though other internal launcher noise remains hidden by default.
 - Allowed Claude's low-risk native-install startup probe commands (`npm -g config get prefix` and the equivalent `node .../npm ...`) as `agent-launch` so they no longer stall startup behind JIT review.

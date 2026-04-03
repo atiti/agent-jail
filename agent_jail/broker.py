@@ -20,6 +20,7 @@ BROWSER_TOOLS = {"peekaboo", "playwright-cli", "screencog"}
 AGENT_TOOLS = {"codex", "claude"}
 AGENT_LAUNCH_BYPASS_FLAGS = {
     "--dangerously-bypass-approvals-and-sandbox",
+    "--dangerously-skip-permissions",
     "--allow-dangerously-skip-permissions",
 }
 AGENT_SCRIPT_MARKERS = (

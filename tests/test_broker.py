@@ -672,6 +672,28 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "allow")
 
+    def test_claude_node_shim_dangerous_bypass_flag_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "node",
+                        "/Users/example/.nvm/versions/node/v22.22.0/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                        "--dangerously-skip-permissions",
+                    ],
+                    "raw": "node /Users/example/.nvm/versions/node/v22.22.0/lib/node_modules/@anthropic-ai/claude-code/cli.js --dangerously-skip-permissions",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
     def test_claude_local_binary_bypass_flag_is_allowed_without_jit(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = PolicyStore(os.path.join(tmp, "policy.json"))
@@ -688,6 +710,27 @@ class BrokerTests(unittest.TestCase):
                         "--allow-dangerously-skip-permissions",
                     ],
                     "raw": "/Users/example/.local/share/claude/versions/2.1.91 --allow-dangerously-skip-permissions",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
+    def test_claude_local_binary_dangerous_bypass_flag_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "/Users/example/.local/share/claude/versions/2.1.91",
+                        "--dangerously-skip-permissions",
+                    ],
+                    "raw": "/Users/example/.local/share/claude/versions/2.1.91 --dangerously-skip-permissions",
                     "cwd": tmp,
                 }
             )
