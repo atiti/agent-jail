@@ -26,6 +26,9 @@ AGENT_SCRIPT_MARKERS = (
     "/@openai/codex/",
     "/@anthropic-ai/claude-code/",
 )
+AGENT_BINARY_MARKERS = (
+    "/.local/share/claude/versions/",
+)
 AGENT_KEYCHAIN_SERVICES = {
     "Claude Code",
     "Claude Code-credentials",
@@ -220,7 +223,10 @@ def _is_agent_launcher_argv(argv):
     if not argv:
         return False
     tool = os.path.basename(argv[0])
+    normalized_tool = argv[0].replace("\\", "/").lower()
     if _is_agent_tool(tool):
+        return True
+    if any(marker in normalized_tool for marker in AGENT_BINARY_MARKERS):
         return True
     if tool not in {"node", "nodejs"}:
         return False
