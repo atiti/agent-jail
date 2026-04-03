@@ -102,6 +102,34 @@ def _add_path_with_parent(paths, path):
             paths.add(parent)
 
 
+def _add_path(paths, path):
+    if path:
+        paths.add(path)
+
+
+def _iter_parent_dirs(path):
+    parent = os.path.dirname(path)
+    seen = set()
+    while parent and parent not in seen and parent != os.path.sep:
+        seen.add(parent)
+        yield parent
+        parent = os.path.dirname(parent)
+
+
+def _metadata_paths(cwd, env):
+    metadata = set(DARWIN_METADATA_READ_PATHS)
+    for mount in _load_json_list(env, "AGENT_JAIL_AUTH_MOUNTS"):
+        for key in ("source", "target"):
+            path = mount.get(key)
+            if not path or not os.path.exists(path) or os.path.isdir(path):
+                continue
+            metadata.update(_iter_parent_dirs(path))
+            real = os.path.realpath(path)
+            if real and real != path:
+                metadata.update(_iter_parent_dirs(real))
+    return sorted(path for path in metadata if path)
+
+
 def _writable_paths(cwd, env):
     writable = {"/tmp", cwd}
     tmpdir = env.get("TMPDIR")
@@ -123,7 +151,7 @@ def _writable_paths(cwd, env):
     for mount in _load_json_list(env, "AGENT_JAIL_AUTH_MOUNTS"):
         for key in ("source", "target"):
             path = mount.get(key)
-            _add_path_with_parent(writable, path)
+            _add_path(writable, path)
     if platform.system().lower().startswith("darwin"):
         for path in list(writable):
             cache_dir = _darwin_user_cache_dir(path)
@@ -156,7 +184,7 @@ def _readable_paths(cwd, env):
     for mount in _load_json_list(env, "AGENT_JAIL_AUTH_MOUNTS"):
         for key in ("source", "target"):
             path = mount.get(key)
-            _add_path_with_parent(readable, path)
+            _add_path(readable, path)
     for path in env.get("PYTHONPATH", "").split(os.pathsep):
         if path:
             readable.add(path)
@@ -209,6 +237,7 @@ def _darwin_denied_exec_paths(env):
 def build_sandbox_exec_profile(cwd, env):
     writable = _writable_paths(cwd, env)
     readable = _readable_paths(cwd, env)
+    metadata = _metadata_paths(cwd, env)
     deny_patterns = _deny_read_patterns(env)
     lines = [
         "(version 1)",
@@ -259,7 +288,7 @@ def build_sandbox_exec_profile(cwd, env):
             "(allow file-read-metadata",
         ]
     )
-    for path in DARWIN_METADATA_READ_PATHS:
+    for path in metadata:
         lines.append(f"    (literal {_profile_quote(path)})")
     lines.extend(
         [

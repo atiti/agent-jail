@@ -71,7 +71,7 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(subpath "/Users/example/project-ro")', read_section)
         self.assertIn('(subpath "/Users/example/.codex")', read_section)
         self.assertIn('(literal "/Users/example/Library/Preferences/com.apple.security.KCN.plist")', read_section)
-        self.assertIn('(subpath "/Users/example/Library/Preferences")', read_section)
+        self.assertNotIn('(subpath "/Users/example/Library/Preferences")', read_section)
         self.assertIn('(subpath "/private/tmp/test")', read_section)
         self.assertIn('(subpath "/dev/tty")', write_section)
         self.assertIn('(subpath "/dev/ttys001")', write_section)
@@ -82,7 +82,7 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(subpath "/dev/null")', write_section)
         self.assertIn('(subpath "/Users/example/project-rw")', write_section)
         self.assertIn('(literal "/Users/example/Library/Preferences/com.apple.security.KCN.plist")', write_section)
-        self.assertIn('(subpath "/Users/example/Library/Preferences")', write_section)
+        self.assertNotIn('(subpath "/Users/example/Library/Preferences")', write_section)
         self.assertNotIn('(subpath "/Users/example/project-ro")', write_section)
         self.assertNotIn("(allow network*)", profile)
         self.assertIn('(allow network* (local ip "localhost:*"))', profile)
@@ -101,6 +101,8 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(preference-domain "securityd")', profile)
         self.assertIn('(allow file-read-metadata', profile)
         self.assertIn('(literal "/Users")', profile)
+        self.assertIn('(literal "/Users/example/Library/Preferences")', profile)
+        self.assertIn('(literal "/Users/example/.agent-jail/Library/Preferences")', profile)
         self.assertIn('(literal "/private/var/db/mds/system/mdsObject.db")', profile)
         self.assertIn('(deny file-read*', profile)
         self.assertIn('/Users/example/build/.*/', profile)
@@ -126,6 +128,38 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(subpath "/usr")', read_section)
         self.assertIn('(subpath "/System")', read_section)
         self.assertIn('(subpath "/private/var/db/mds")', read_section)
+
+    def test_sandbox_exec_profile_does_not_promote_file_mounts_to_home_subpaths(self):
+        env = {
+            "AGENT_JAIL_HOME": "/tmp/agent-jail/home",
+            "AGENT_JAIL_SESSION_DIR": "/tmp/agent-jail",
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": json.dumps(
+                [
+                    {
+                        "source": "/Users/example/.claude.json",
+                        "target": "/tmp/agent-jail/home/.claude.json",
+                    }
+                ]
+            ),
+        }
+
+        with mock.patch("agent_jail.backend.os.path.exists", return_value=True), mock.patch(
+            "agent_jail.backend.os.path.isdir",
+            side_effect=lambda path: not path.endswith(".json"),
+        ), mock.patch(
+            "agent_jail.backend.os.path.realpath",
+            side_effect=lambda path: "/Users/example/.claude.json" if path == "/tmp/agent-jail/home/.claude.json" else path,
+        ):
+            profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        read_section, _, write_section = profile.partition("(allow file-write*")
+        self.assertIn('(literal "/Users/example/.claude.json")', read_section)
+        self.assertNotIn('(subpath "/Users/example")', read_section)
+        self.assertIn('(literal "/Users/example")', profile)
+        self.assertIn('(literal "/tmp/agent-jail/home")', profile)
+        self.assertIn('(literal "/Users/example/.claude.json")', write_section)
+        self.assertNotIn('(subpath "/Users/example")', write_section)
 
     def test_sandbox_exec_profile_allows_ssh_exec_when_git_ssh_hosts_are_configured(self):
         env = {

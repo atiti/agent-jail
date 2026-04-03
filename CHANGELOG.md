@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed a macOS sandbox overgrant where file-backed home mounts such as `.claude.json` promoted the entire host home into the generated read/write allowlists; the profile now grants the file itself and only metadata traversal on required parent directories.
 - Split persistent state from the effective jailed home: `~/.agent-jail` now remains the control/state directory, while each `agent-jail run` session gets its own per-run home under the session directory instead of sharing one long-lived fake `HOME`.
 - Added `agent-jail cleanup` to prune stale inactive runtime records, orphaned event logs, and old `*.agent-jail-backup-*` leftovers from the shared state directory.
 - Hardened the built-in HTTP and SOCKS5 proxy listeners with optional per-session authentication, and updated launch-env exports/tests to carry authenticated proxy URLs instead of anonymous localhost endpoints.
