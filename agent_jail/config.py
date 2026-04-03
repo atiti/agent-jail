@@ -115,7 +115,7 @@ def _normalize_env_prefix_list(values):
 
 
 def default_config_path():
-    home = os.environ.get("AGENT_JAIL_HOME") or str(Path.home() / ".agent-jail")
+    home = os.environ.get("AGENT_JAIL_STATE_HOME") or os.environ.get("AGENT_JAIL_HOME") or str(Path.home() / ".agent-jail")
     return os.path.join(home, "config.json")
 
 

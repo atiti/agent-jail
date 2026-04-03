@@ -176,6 +176,7 @@ CHILD_AGENT_JAIL_ENV_KEYS = {
     "AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS",
     "AGENT_JAIL_SESSION_DIR",
     "AGENT_JAIL_SOCKET",
+    "AGENT_JAIL_STATE_HOME",
 }
 
 
@@ -232,12 +233,16 @@ def apply_target_env_profile(env, target_argv, proxy_mode=None):
 
 
 def ensure_home():
-    preferred = os.environ.get("AGENT_JAIL_HOME") or os.path.join(os.path.expanduser("~"), ".agent-jail")
+    preferred = os.environ.get("AGENT_JAIL_STATE_HOME") or os.environ.get("AGENT_JAIL_HOME") or os.path.join(os.path.expanduser("~"), ".agent-jail")
     try:
         os.makedirs(preferred, exist_ok=True)
         return preferred
     except PermissionError:
         return tempfile.mkdtemp(prefix="agent-jail-home-")
+
+
+def session_home_path(session_dir):
+    return os.path.join(session_dir, "home")
 
 
 def discover_cert_env():
@@ -446,6 +451,9 @@ def parse_args(argv=None):
             command.add_argument("--default-deny", action="store_true")
     network_list = network_sub.add_parser("list")
     network_list.add_argument("--json", action="store_true")
+    cleanup = sub.add_parser("cleanup")
+    cleanup.add_argument("--json", action="store_true")
+    cleanup.add_argument("--max-age-days", type=int, default=7)
     return parser, parser.parse_args(argv)
 
 
@@ -455,6 +463,10 @@ def runtime_state_path(home):
 
 def runtime_states_dir(home):
     return os.path.join(home, "runtimes")
+
+
+def events_dir(home):
+    return os.path.join(home, "events")
 
 
 def runtime_state_record_path(home, session):
@@ -477,6 +489,67 @@ def list_runtime_states(home):
         state.setdefault("session", entry[:-5])
         states.append(state)
     return states
+
+
+def cleanup_state_home(home, max_age_days=7):
+    now = time.time()
+    cutoff = now - max(float(max_age_days), 0.0) * 86400.0
+    removed = {"runtime_records": 0, "event_logs": 0, "backups": 0}
+    active_logs = set()
+    for state in list_runtime_states(home):
+        if state.get("active") and state.get("events_log"):
+            active_logs.add(state["events_log"])
+    runtimes_dir = runtime_states_dir(home)
+    if os.path.isdir(runtimes_dir):
+        for entry in os.listdir(runtimes_dir):
+            if not entry.endswith(".json"):
+                continue
+            path = os.path.join(runtimes_dir, entry)
+            try:
+                state = load_runtime_state(path)
+            except (FileNotFoundError, json.JSONDecodeError):
+                state = {"active": False}
+            if state.get("active"):
+                continue
+            try:
+                mtime = os.path.getmtime(path)
+            except FileNotFoundError:
+                continue
+            if mtime >= cutoff:
+                continue
+            os.unlink(path)
+            removed["runtime_records"] += 1
+    events_root = events_dir(home)
+    if os.path.isdir(events_root):
+        for entry in os.listdir(events_root):
+            if not entry.endswith(".jsonl"):
+                continue
+            path = os.path.join(events_root, entry)
+            if path in active_logs:
+                continue
+            try:
+                mtime = os.path.getmtime(path)
+            except FileNotFoundError:
+                continue
+            if mtime >= cutoff:
+                continue
+            os.unlink(path)
+            removed["event_logs"] += 1
+    for root, _, files in os.walk(home):
+        for name in files:
+            if ".agent-jail-backup-" not in name:
+                continue
+            path = os.path.join(root, name)
+            try:
+                mtime = os.path.getmtime(path)
+            except FileNotFoundError:
+                continue
+            if mtime >= cutoff:
+                continue
+            os.unlink(path)
+            removed["backups"] += 1
+    removed["total"] = sum(removed.values())
+    return removed
 
 
 def _print_event(event, json_output=False):
@@ -943,6 +1016,19 @@ def handle_network(args):
     return 0
 
 
+def handle_cleanup(args):
+    home = ensure_home()
+    result = cleanup_state_home(home, max_age_days=args.max_age_days)
+    if args.json:
+        print(json.dumps({"home": home, **result}, indent=2, sort_keys=True))
+        return 0
+    print(
+        f"cleaned {home}: removed {result['runtime_records']} runtime records, "
+        f"{result['event_logs']} event logs, {result['backups']} backups"
+    )
+    return 0
+
+
 def run(argv=None):
     parser, args = parse_args(argv)
     if args.command == "monitor":
@@ -955,10 +1041,12 @@ def run(argv=None):
         return handle_config(args)
     if args.command == "network":
         return handle_network(args)
+    if args.command == "cleanup":
+        return handle_cleanup(args)
     if args.command != "run" or not args.target:
         parser.print_usage(sys.stderr)
         raise SystemExit(2)
-    home = ensure_home()
+    state_home = ensure_home()
     raw_kill_switch = args.kill_switch or DEFAULT_KILL_SWITCH
     kill_switch = os.path.abspath(os.path.expanduser(raw_kill_switch)) if raw_kill_switch else None
     if kill_switch and os.path.exists(kill_switch):
@@ -973,14 +1061,15 @@ def run(argv=None):
         wrapper_dir = os.path.join(tmp, ".agent-jail", "bin")
         sock_path = os.path.join(tmp, "broker.sock")
         event_socket_path = os.path.join(tmp, "events.sock")
+        home = session_home_path(tmp)
         runtime_session = f"session-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
         event_log_path = os.path.join(
-            home,
+            state_home,
             "events",
             f"{runtime_session}.jsonl",
         )
-        session_state_path = runtime_state_record_path(home, runtime_session)
-        store = PolicyStore(os.path.join(home, "policy.json"))
+        session_state_path = runtime_state_record_path(state_home, runtime_session)
+        store = PolicyStore(os.path.join(state_home, "policy.json"))
         delegate_names = set(run_defaults.get("allow_delegates", []))
         delegate_names.update(args.allow_delegate or [])
         allow_ops = run_defaults.get("allow_ops", False) if args.allow_ops is None else bool(args.allow_ops)
@@ -1015,7 +1104,7 @@ def run(argv=None):
             "session": runtime_session,
             "started_at": datetime.now(UTC).isoformat(),
         }
-        write_runtime_state(runtime_state_path(home), runtime_payload)
+        write_runtime_state(runtime_state_path(state_home), runtime_payload)
         write_runtime_state(session_state_path, runtime_payload)
         broker = BrokerServer(
             sock_path,
@@ -1047,6 +1136,7 @@ def run(argv=None):
         env.update(
             {
                 "AGENT_JAIL_HOME": home,
+                "AGENT_JAIL_STATE_HOME": state_home,
                 "AGENT_JAIL_SOCKET": sock_path,
                 "AGENT_JAIL_ORIG_PATH": os.environ.get("PATH", ""),
                 "AGENT_JAIL_MOUNTS": json.dumps(session["mounts"], sort_keys=True),
@@ -1241,7 +1331,7 @@ def run(argv=None):
                 "session": runtime_session,
                 "started_at": runtime_payload["started_at"],
             }
-            write_runtime_state(runtime_state_path(home), final_payload)
+            write_runtime_state(runtime_state_path(state_home), final_payload)
             write_runtime_state(session_state_path, final_payload)
 
 

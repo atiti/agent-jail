@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Split persistent state from the effective jailed home: `~/.agent-jail` now remains the control/state directory, while each `agent-jail run` session gets its own per-run home under the session directory instead of sharing one long-lived fake `HOME`.
+- Added `agent-jail cleanup` to prune stale inactive runtime records, orphaned event logs, and old `*.agent-jail-backup-*` leftovers from the shared state directory.
 - Hardened the built-in HTTP and SOCKS5 proxy listeners with optional per-session authentication, and updated launch-env exports/tests to carry authenticated proxy URLs instead of anonymous localhost endpoints.
 - Added broker-side write-scope enforcement for explicit mutating commands and literal Python delete/write paths, so destructive operations are denied outside the declared writable roots while repo-local cleanup still works.
 - Added broker client gating for Unix-socket requests: direct raw `broker.sock` callers are denied unless they arrive through the internal wrapper or capability bridge shape that the jail emits.

@@ -53,6 +53,23 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.strip(), "ok")
 
+    def test_run_uses_session_home_separate_from_state_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            proc = self.run_cli(
+                "run",
+                sys.executable,
+                "-c",
+                "import json, os; print(json.dumps({k: os.environ.get(k) for k in ('HOME','AGENT_JAIL_HOME','AGENT_JAIL_STATE_HOME')}, sort_keys=True))",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertEqual(values["HOME"], values["AGENT_JAIL_HOME"])
+        self.assertEqual(values["AGENT_JAIL_STATE_HOME"], tmp)
+        self.assertNotEqual(values["AGENT_JAIL_HOME"], tmp)
+
     def test_run_strips_host_secrets_from_child_env_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -963,6 +980,41 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("git status", proc.stdout)
         self.assertIn("[ALLOW][general][session-b] tree -L 2", proc.stdout)
+
+    def test_cleanup_removes_stale_runtime_logs_and_backups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["AGENT_JAIL_HOME"] = tmp
+            events_root = os.path.join(tmp, "events")
+            runtimes_root = os.path.join(tmp, "runtimes")
+            os.makedirs(events_root)
+            os.makedirs(runtimes_root)
+            stale_log = os.path.join(events_root, "stale.jsonl")
+            active_log = os.path.join(events_root, "active.jsonl")
+            stale_runtime = os.path.join(runtimes_root, "stale.json")
+            active_runtime = os.path.join(runtimes_root, "active.json")
+            backup = os.path.join(tmp, "config.json.agent-jail-backup-20260403120000")
+            for path in (stale_log, active_log, backup):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("x")
+            with open(stale_runtime, "w", encoding="utf-8") as handle:
+                json.dump({"active": False, "events_log": stale_log}, handle)
+            with open(active_runtime, "w", encoding="utf-8") as handle:
+                json.dump({"active": True, "events_log": active_log}, handle)
+            old = time.time() - 10 * 86400
+            for path in (stale_log, stale_runtime, backup):
+                os.utime(path, (old, old))
+            proc = self.run_cli("cleanup", "--json", env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            result = json.loads(proc.stdout)
+            self.assertEqual(result["runtime_records"], 1)
+            self.assertEqual(result["event_logs"], 1)
+            self.assertEqual(result["backups"], 1)
+            self.assertFalse(os.path.exists(stale_runtime))
+            self.assertFalse(os.path.exists(stale_log))
+            self.assertFalse(os.path.exists(backup))
+            self.assertTrue(os.path.exists(active_runtime))
+            self.assertTrue(os.path.exists(active_log))
 
     def test_monitor_json_output(self):
         with tempfile.TemporaryDirectory() as tmp:
