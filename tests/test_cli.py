@@ -43,6 +43,77 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.strip(), "ok")
 
+    def test_run_strips_host_secrets_from_child_env_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_HOME": tmp,
+                    "OPENAI_API_KEY": "host-openai-secret",
+                    "AZURE_OPENAI_API_KEY": "host-azure-secret",
+                    "KEEP_ME": "host-value",
+                    "SSH_AUTH_SOCK": "/tmp/test-ssh.sock",
+                }
+            )
+            proc = self.run_cli(
+                "run",
+                sys.executable,
+                "-c",
+                (
+                    "import json, os; "
+                    "print(json.dumps({k: os.environ.get(k) for k in "
+                    "('OPENAI_API_KEY','AZURE_OPENAI_API_KEY','KEEP_ME','SSH_AUTH_SOCK','AGENT_JAIL_SOURCE_ROOT','AGENT_JAIL_SOCKET')}, sort_keys=True))"
+                ),
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertIsNone(values["OPENAI_API_KEY"])
+        self.assertIsNone(values["AZURE_OPENAI_API_KEY"])
+        self.assertIsNone(values["KEEP_ME"])
+        self.assertEqual(values["SSH_AUTH_SOCK"], "/tmp/test-ssh.sock")
+        self.assertIsNone(values["AGENT_JAIL_SOURCE_ROOT"])
+        self.assertTrue(values["AGENT_JAIL_SOCKET"])
+
+    def test_run_preserves_configured_env_names_and_prefixes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "config.json"), "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "defaults": {
+                            "run": {
+                                "preserve_env": ["KEEP_ME"],
+                                "preserve_env_prefixes": ["MYAPP_"],
+                            }
+                        }
+                    },
+                    handle,
+                )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "AGENT_JAIL_HOME": tmp,
+                    "KEEP_ME": "keep",
+                    "MYAPP_TOKEN": "prefix-keep",
+                    "DROP_ME": "drop",
+                }
+            )
+            proc = self.run_cli(
+                "run",
+                sys.executable,
+                "-c",
+                (
+                    "import json, os; "
+                    "print(json.dumps({k: os.environ.get(k) for k in ('KEEP_ME','MYAPP_TOKEN','DROP_ME')}, sort_keys=True))"
+                ),
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertEqual(values["KEEP_ME"], "keep")
+        self.assertEqual(values["MYAPP_TOKEN"], "prefix-keep")
+        self.assertIsNone(values["DROP_ME"])
+
     def test_run_returns_127_for_missing_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -213,6 +284,10 @@ class CLITests(unittest.TestCase):
                 ".config/opencode",
                 "--git-ssh-host",
                 "github.com",
+                "--preserve-env",
+                "KEEP_ME",
+                "--preserve-env-prefix",
+                "MYAPP_",
                 "--proxy",
                 "--allow-ops",
                 "--allow-delegate",
@@ -234,6 +309,8 @@ class CLITests(unittest.TestCase):
         )
         self.assertEqual(config["defaults"]["run"]["home_mounts"], [".config/opencode", ".overwatchr"])
         self.assertEqual(config["defaults"]["run"]["git_ssh_hosts"], ["github.com"])
+        self.assertEqual(config["defaults"]["run"]["preserve_env"], ["KEEP_ME"])
+        self.assertEqual(config["defaults"]["run"]["preserve_env_prefixes"], ["MYAPP_"])
         self.assertTrue(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
@@ -633,6 +710,7 @@ class CLITests(unittest.TestCase):
             os.makedirs(os.path.join(real_home, ".codex"))
             os.makedirs(os.path.join(real_home, ".claude"))
             os.makedirs(os.path.join(real_home, ".overwatchr"))
+            os.makedirs(os.path.join(real_home, "Library", "Keychains"))
             os.makedirs(os.path.join(real_home, "build"))
             os.makedirs(os.path.join(real_home, "workspace"))
             old_home = os.environ.get("HOME")
@@ -643,6 +721,9 @@ class CLITests(unittest.TestCase):
                 codex_link = os.path.islink(os.path.join(jail_home, ".codex"))
                 claude_link = os.path.islink(os.path.join(jail_home, ".claude"))
                 overwatchr_link = os.path.islink(os.path.join(jail_home, ".overwatchr"))
+                keychains_link = os.path.islink(
+                    os.path.join(jail_home, "Library", "Keychains")
+                )
                 build_link = os.path.islink(os.path.join(jail_home, "build"))
                 workspace_link = os.path.islink(os.path.join(jail_home, "workspace"))
             finally:
@@ -656,11 +737,13 @@ class CLITests(unittest.TestCase):
                     os.path.join(real_home, ".codex"),
                     os.path.join(real_home, ".claude"),
                     os.path.join(real_home, ".overwatchr"),
+                    os.path.join(real_home, "Library", "Keychains"),
                 },
             )
             self.assertTrue(codex_link)
             self.assertTrue(claude_link)
             self.assertTrue(overwatchr_link)
+            self.assertTrue(keychains_link)
             self.assertTrue(build_link)
             self.assertTrue(workspace_link)
 

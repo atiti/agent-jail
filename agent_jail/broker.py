@@ -29,6 +29,10 @@ AGENT_SCRIPT_MARKERS = (
 AGENT_BINARY_MARKERS = (
     "/.local/share/claude/versions/",
 )
+AGENT_NODE_STARTUP_SCRIPT_MARKERS = (
+    "/bin/npm",
+    "/bin/npm-cli.js",
+)
 AGENT_KEYCHAIN_SERVICES = {
     "Claude Code",
     "Claude Code-credentials",
@@ -263,6 +267,22 @@ def _is_agent_keychain_lookup_argv(argv):
         if item in {"-a", "-s"}:
             pending_flag = item
     return wants_secret and service in AGENT_KEYCHAIN_SERVICES
+
+
+def _is_agent_startup_probe_argv(argv):
+    if not argv:
+        return False
+    tool = os.path.basename(argv[0])
+    if tool == "npm":
+        return argv[1:] == ["-g", "config", "get", "prefix"]
+    if tool not in {"node", "nodejs"}:
+        return False
+    if len(argv) != 6:
+        return False
+    script = argv[1].replace("\\", "/").lower()
+    if not any(script.endswith(marker) for marker in AGENT_NODE_STARTUP_SCRIPT_MARKERS):
+        return False
+    return argv[2:] == ["-g", "config", "get", "prefix"]
 
 
 def _is_python_tool(tool):
@@ -780,6 +800,12 @@ def classify(intent, argv, delegates=None, context=None, secrets=None):
         return {
             "risk": "low",
             "reason": "agent auth keychain lookup under agent-jail outer control",
+            "category": "agent-launch",
+        }
+    if _is_agent_startup_probe_argv(argv):
+        return {
+            "risk": "low",
+            "reason": "agent startup install probe under agent-jail outer control",
             "category": "agent-launch",
         }
     if _is_agent_launcher_argv(argv) and any(flag in argv[1:] for flag in AGENT_LAUNCH_BYPASS_FLAGS):

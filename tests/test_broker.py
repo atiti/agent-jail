@@ -719,6 +719,49 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "allow")
 
+    def test_npm_global_prefix_probe_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["npm", "-g", "config", "get", "prefix"],
+                    "raw": "npm -g config get prefix",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
+    def test_node_npm_global_prefix_probe_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "node",
+                        "/Users/example/.nvm/versions/node/v22.22.0/bin/npm",
+                        "-g",
+                        "config",
+                        "get",
+                        "prefix",
+                    ],
+                    "raw": "node /Users/example/.nvm/versions/node/v22.22.0/bin/npm -g config get prefix",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
     def test_non_agent_keychain_lookup_still_denies(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = PolicyStore(os.path.join(tmp, "policy.json"))

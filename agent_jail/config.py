@@ -82,6 +82,38 @@ def _normalize_host_list(values):
     return normalized
 
 
+def _normalize_env_name_list(values):
+    if not isinstance(values, list):
+        return []
+    normalized = []
+    seen = set()
+    for item in values:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
+def _normalize_env_prefix_list(values):
+    if not isinstance(values, list):
+        return []
+    normalized = []
+    seen = set()
+    for item in values:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
 def default_config_path():
     home = os.environ.get("AGENT_JAIL_HOME") or str(Path.home() / ".agent-jail")
     return os.path.join(home, "config.json")
@@ -101,6 +133,8 @@ def _normalize_run_defaults(values):
         "write_roots": _normalize_path_list(values.get("write_roots")),
         "home_mounts": _normalize_home_mount_list(values.get("home_mounts")),
         "git_ssh_hosts": _normalize_host_list(values.get("git_ssh_hosts")),
+        "preserve_env": _normalize_env_name_list(values.get("preserve_env")),
+        "preserve_env_prefixes": _normalize_env_prefix_list(values.get("preserve_env_prefixes")),
         "proxy": bool(values.get("proxy", True)),
         "allow_ops": bool(values.get("allow_ops", False)),
         "allow_delegates": [str(item) for item in allow_delegates if isinstance(item, str) and item.strip()],

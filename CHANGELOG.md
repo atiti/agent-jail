@@ -39,6 +39,9 @@
 - Updated the public docs to show the exact non-interactive bypass flags for Codex (`--dangerously-bypass-approvals-and-sandbox`) and Claude (`--allow-dangerously-skip-permissions`) in `agent-jail run` examples.
 - Treated Claude's `--allow-dangerously-skip-permissions` the same way as Codex's bypass flag in the agent-launch heuristic so top-level agent startup no longer falls through to JIT review.
 - Stopped hiding agent-launch bypass reviews from `agent-jail review list` when they do exist, even though other internal launcher noise remains hidden by default.
+- Allowed Claude's low-risk native-install startup probe commands (`npm -g config get prefix` and the equivalent `node .../npm ...`) as `agent-launch` so they no longer stall startup behind JIT review.
+- On macOS, mirrored `~/Library/Keychains` into the jailed home by default so HOME-rewritten sessions can still resolve the same login keychain entries as the host shell.
+- Changed `agent-jail run` to build child environments from a small safe baseline instead of inheriting the full host environment, added `defaults.run.preserve_env` plus `defaults.run.preserve_env_prefixes` for explicit passthrough, and stopped exposing internal-only `AGENT_JAIL_*` metadata such as source-root and sandbox-profile details to child processes.
 - Fixed CI portability for proxy command-wrapper tests by switching their shell subprocess probe from `zsh` to `bash`, which is available on GitHub's Ubuntu runners.
 - Fixed a CI-only policy-store race by saving `policy.json` atomically, preventing concurrent review reloads from reading a truncated JSON file.
 - Added `--proxy-debug` instrumentation so `agent-jail monitor --follow` can show proxy handshake, upstream-connect, and relay-close lifecycle events for HTTP and SOCKS debugging.

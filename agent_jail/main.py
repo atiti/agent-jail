@@ -13,7 +13,14 @@ from datetime import UTC, datetime
 from agent_jail.backend import build_command, choose_backend
 from agent_jail.broker import BrokerServer
 from agent_jail.capabilities import resolve_session_capabilities
-from agent_jail.config import _normalize_home_mount_list, _normalize_host_list, load_config, save_config
+from agent_jail.config import (
+    _normalize_env_name_list,
+    _normalize_env_prefix_list,
+    _normalize_home_mount_list,
+    _normalize_host_list,
+    load_config,
+    save_config,
+)
 from agent_jail.events import EventSink, load_runtime_state, render_event, stream_event_socket, write_runtime_state
 from agent_jail.policy import PolicyStore
 from agent_jail.proxy import ProxyPolicy, start_http_proxy, start_socks_proxy
@@ -117,6 +124,79 @@ TARGET_ENV_PROFILES = {
         },
     }
 }
+
+DEFAULT_PASSTHROUGH_ENV_NAMES = {
+    "__CFBundleIdentifier",
+    "COLORTERM",
+    "DISPLAY",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_MESSAGES",
+    "LC_TIME",
+    "LaunchInstanceID",
+    "LOGNAME",
+    "NO_COLOR",
+    "PATH",
+    "SECURITYSESSIONID",
+    "SHELL",
+    "SSH_AUTH_SOCK",
+    "TERM",
+    "TERM_PROGRAM",
+    "TERM_PROGRAM_VERSION",
+    "TERM_SESSION_ID",
+    "TMP",
+    "TMPDIR",
+    "TEMP",
+    "TZ",
+    "USER",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XPC_FLAGS",
+    "XPC_SERVICE_NAME",
+}
+
+DEFAULT_PASSTHROUGH_ENV_PREFIXES = ("LC_",)
+
+CHILD_AGENT_JAIL_ENV_KEYS = {
+    "AGENT_JAIL_CAPABILITIES",
+    "AGENT_JAIL_HOME",
+    "AGENT_JAIL_HOST_HOME",
+    "AGENT_JAIL_KILL_SWITCH",
+    "AGENT_JAIL_MOUNTS",
+    "AGENT_JAIL_ORIG_PATH",
+    "AGENT_JAIL_PROXY_BYPASS_WRAPPER_HOPS",
+    "AGENT_JAIL_SESSION_DIR",
+    "AGENT_JAIL_SOCKET",
+}
+
+
+def _env_passthrough_allowed(name, preserve_env, preserve_env_prefixes):
+    if name.startswith("AGENT_JAIL_"):
+        return False
+    if name in DEFAULT_PASSTHROUGH_ENV_NAMES or name in preserve_env:
+        return True
+    prefixes = DEFAULT_PASSTHROUGH_ENV_PREFIXES + tuple(preserve_env_prefixes)
+    return any(name.startswith(prefix) for prefix in prefixes)
+
+
+def build_launch_env(base_env, run_defaults):
+    preserve_env = set(run_defaults.get("preserve_env", []))
+    preserve_env_prefixes = tuple(run_defaults.get("preserve_env_prefixes", []))
+    launch_env = {}
+    for name, value in base_env.items():
+        if value is None:
+            continue
+        if _env_passthrough_allowed(name, preserve_env, preserve_env_prefixes):
+            launch_env[name] = value
+    return launch_env
+
+
+def strip_internal_launch_env(env):
+    for key in tuple(env):
+        if key.startswith("AGENT_JAIL_") and key not in CHILD_AGENT_JAIL_ENV_KEYS:
+            env.pop(key, None)
+    return env
 
 
 def apply_target_env_profile(env, target_argv, proxy_mode=None):
@@ -233,6 +313,12 @@ def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True, ext
         options.append(".codex")
     if mount_claude_home:
         options.append(".claude")
+    if sys.platform == "darwin":
+        # macOS `security` resolves the default login keychain relative to the
+        # effective HOME. When agent-jail rewrites HOME to the jailed home,
+        # tools like Claude stop finding existing `security find-generic-password`
+        # entries unless `~/Library/Keychains` is mirrored there as well.
+        options.append("Library/Keychains")
     for item in extra_home_mounts or []:
         if isinstance(item, str) and item and item not in options:
             options.append(item)
@@ -328,6 +414,8 @@ def parse_args(argv=None):
     config_set.add_argument("--write-root", action="append", default=[])
     config_set.add_argument("--home-mount", action="append", default=[])
     config_set.add_argument("--git-ssh-host", action="append", default=[])
+    config_set.add_argument("--preserve-env", action="append", default=[])
+    config_set.add_argument("--preserve-env-prefix", action="append", default=[])
     config_set.add_argument("--proxy", dest="proxy", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-ops", dest="allow_ops", action=argparse.BooleanOptionalAction, default=None)
     config_set.add_argument("--allow-delegate", action="append", default=[])
@@ -782,6 +870,10 @@ def handle_config(args):
         run_defaults["home_mounts"] = _normalize_home_mount_list(args.home_mount)
     if args.git_ssh_host:
         run_defaults["git_ssh_hosts"] = _normalize_host_list(args.git_ssh_host)
+    if args.preserve_env:
+        run_defaults["preserve_env"] = _normalize_env_name_list(args.preserve_env)
+    if args.preserve_env_prefix:
+        run_defaults["preserve_env_prefixes"] = _normalize_env_prefix_list(args.preserve_env_prefix)
     if args.proxy is not None:
         run_defaults["proxy"] = bool(args.proxy)
     if args.allow_ops is not None:
@@ -936,12 +1028,12 @@ def run(argv=None):
             mount_claude_home=args.mount_claude_home,
             extra_home_mounts=run_defaults.get("home_mounts", []),
         )
-        env = os.environ.copy()
+        env = build_launch_env(os.environ, run_defaults)
         env.update(
             {
                 "AGENT_JAIL_HOME": home,
                 "AGENT_JAIL_SOCKET": sock_path,
-                "AGENT_JAIL_ORIG_PATH": env.get("PATH", ""),
+                "AGENT_JAIL_ORIG_PATH": os.environ.get("PATH", ""),
                 "AGENT_JAIL_MOUNTS": json.dumps(session["mounts"], sort_keys=True),
                 "AGENT_JAIL_PYTHON": python_executable,
                 "AGENT_JAIL_SESSION_DIR": tmp,
@@ -955,8 +1047,8 @@ def run(argv=None):
                 "AGENT_JAIL_GIT_SSH_HOSTS": json.dumps(run_defaults.get("git_ssh_hosts", []), sort_keys=True),
                 "AGENT_JAIL_HOST_HOME": os.path.expanduser("~"),
                 "HOME": home,
-                "PATH": wrapper_dir + os.pathsep + env.get("PATH", ""),
-                "PYTHONPATH": source_root + os.pathsep + env.get("PYTHONPATH", ""),
+                "PATH": wrapper_dir + os.pathsep + os.environ.get("PATH", ""),
+                "PYTHONPATH": source_root,
             }
         )
         cert_env = discover_macos_system_cert_env(tmp)
@@ -1008,7 +1100,7 @@ def run(argv=None):
                 )
                 if key in env
             }
-        backend = choose_backend(preferred=env.get("AGENT_JAIL_BACKEND"))
+        backend = choose_backend(preferred=os.environ.get("AGENT_JAIL_BACKEND"))
         try:
             target_argv = resolve_target(args.target, env)
         except FileNotFoundError as exc:
@@ -1075,6 +1167,7 @@ def run(argv=None):
                 flush=True,
             )
         cmd = build_command(backend, target_argv, os.getcwd(), env)
+        strip_internal_launch_env(env)
         try:
             proc = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
             while True:

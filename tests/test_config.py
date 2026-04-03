@@ -17,6 +17,8 @@ class ConfigTests(unittest.TestCase):
                 "write_roots": [],
                 "home_mounts": [".overwatchr"],
                 "git_ssh_hosts": [],
+                "preserve_env": [],
+                "preserve_env_prefixes": [],
                 "proxy": True,
                 "allow_ops": False,
                 "allow_delegates": [],
@@ -102,6 +104,8 @@ class ConfigTests(unittest.TestCase):
                                 "write_roots": ["~/workspace"],
                                 "home_mounts": [".config/opencode", "~/Library/Application Support/Pi", "", 1],
                                 "git_ssh_hosts": ["github.com", "GitHub.com", "git@gitlab.example.com", "", 1],
+                                "preserve_env": ["KEEP_ME", "", 1],
+                                "preserve_env_prefixes": ["MYAPP_", "", 1],
                                 "proxy": False,
                                 "allow_ops": True,
                                 "allow_delegates": ["local-secrets", "", 1],
@@ -128,6 +132,8 @@ class ConfigTests(unittest.TestCase):
             config["defaults"]["run"]["git_ssh_hosts"],
             ["github.com", "gitlab.example.com"],
         )
+        self.assertEqual(config["defaults"]["run"]["preserve_env"], ["KEEP_ME"])
+        self.assertEqual(config["defaults"]["run"]["preserve_env_prefixes"], ["MYAPP_"])
         self.assertFalse(config["defaults"]["run"]["proxy"])
         self.assertTrue(config["defaults"]["run"]["allow_ops"])
         self.assertEqual(config["defaults"]["run"]["allow_delegates"], ["local-secrets"])
