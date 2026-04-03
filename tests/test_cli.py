@@ -9,7 +9,14 @@ import urllib.parse
 import unittest
 from unittest import mock
 
-from agent_jail.main import _format_review_list, _format_suggestion_report, _review_suggestions_interactively, render_cap_launcher
+from agent_jail.main import (
+    _format_review_list,
+    _format_suggestion_report,
+    _review_suggestions_interactively,
+    default_secret_deny_patterns,
+    discover_launch_read_paths,
+    render_cap_launcher,
+)
 from agent_jail.policy import PolicyStore
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -252,6 +259,37 @@ class CLITests(unittest.TestCase):
         self.assertIn({"path": os.path.realpath(workspace_root), "mode": "rw"}, mounts)
         self.assertTrue(capabilities["ops_exec"])
         self.assertIn("local-secrets", capabilities["delegates"])
+
+    def test_default_secret_deny_patterns_include_root_and_nested_secret_files(self):
+        patterns = default_secret_deny_patterns(["/Users/example/project"])
+
+        self.assertIn("/Users/example/project/.env", patterns)
+        self.assertIn("/Users/example/project/.npmrc", patterns)
+        self.assertIn("/Users/example/project/**/.env.*", patterns)
+        self.assertIn("/Users/example/project/**/id_rsa", patterns)
+        self.assertIn("/Users/example/project/**/secrets/**", patterns)
+
+    def test_discover_launch_read_paths_includes_node_package_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            package_root = os.path.join(tmp, "lib", "node_modules", "@openai", "codex")
+            bin_dir = os.path.join(tmp, "bin")
+            os.makedirs(os.path.join(package_root, "bin"), exist_ok=True)
+            os.makedirs(bin_dir, exist_ok=True)
+            script_path = os.path.join(package_root, "bin", "codex.js")
+            node_path = os.path.join(bin_dir, "node")
+            package_json = os.path.join(package_root, "package.json")
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.write("console.log('ok')\n")
+            with open(node_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            with open(package_json, "w", encoding="utf-8") as handle:
+                handle.write("{}\n")
+
+            paths = discover_launch_read_paths([node_path, script_path])
+
+        self.assertIn(os.path.realpath(node_path), paths)
+        self.assertIn(os.path.realpath(script_path), paths)
+        self.assertIn(os.path.realpath(package_root), paths)
 
     def test_run_includes_local_skill_roots_as_read_only_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:

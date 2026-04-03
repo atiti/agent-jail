@@ -161,6 +161,26 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(literal "/Users/example/.claude.json")', write_section)
         self.assertNotIn('(subpath "/Users/example")', write_section)
 
+    def test_sandbox_exec_profile_includes_launch_read_paths(self):
+        env = {
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+            "AGENT_JAIL_LAUNCH_READ_PATHS": json.dumps(
+                ["/Users/example/.nvm/versions/node/v22/bin/node", "/Users/example/.nvm/versions/node/v22/lib/node_modules/@openai/codex"]
+            ),
+        }
+
+        with mock.patch("agent_jail.backend.os.path.exists", return_value=True), mock.patch(
+            "agent_jail.backend.os.path.isdir",
+            side_effect=lambda path: not path.endswith("/node"),
+        ):
+            profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        read_section, _, _ = profile.partition("(allow file-write*")
+        self.assertIn('(literal "/Users/example/.nvm/versions/node/v22/bin/node")', read_section)
+        self.assertIn('(subpath "/Users/example/.nvm/versions/node/v22/lib/node_modules/@openai/codex")', read_section)
+        self.assertIn('(literal "/Users/example/.nvm/versions/node/v22/bin")', profile)
+
     def test_sandbox_exec_profile_allows_ssh_exec_when_git_ssh_hosts_are_configured(self):
         env = {
             "AGENT_JAIL_GIT_SSH_HOSTS": json.dumps(["github.com"]),

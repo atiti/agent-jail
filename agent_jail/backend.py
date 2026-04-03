@@ -127,6 +127,13 @@ def _metadata_paths(cwd, env):
             real = os.path.realpath(path)
             if real and real != path:
                 metadata.update(_iter_parent_dirs(real))
+    for path in _load_json_list(env, "AGENT_JAIL_LAUNCH_READ_PATHS"):
+        if not path or not os.path.exists(path) or os.path.isdir(path):
+            continue
+        metadata.update(_iter_parent_dirs(path))
+        real = os.path.realpath(path)
+        if real and real != path:
+            metadata.update(_iter_parent_dirs(real))
     return sorted(path for path in metadata if path)
 
 
@@ -185,6 +192,8 @@ def _readable_paths(cwd, env):
         for key in ("source", "target"):
             path = mount.get(key)
             _add_path(readable, path)
+    for path in _load_json_list(env, "AGENT_JAIL_LAUNCH_READ_PATHS"):
+        _add_path(readable, path)
     for path in env.get("PYTHONPATH", "").split(os.pathsep):
         if path:
             readable.add(path)

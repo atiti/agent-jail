@@ -541,13 +541,15 @@ With that profile in place, `agent-jail run <cmd>` behaves like a convenience wr
 
 `git_ssh_hosts` is an explicit allowlist for Git's SSH transport hosts. For example, adding `github.com` lets jailed `git push origin main` use Git's narrow `ssh ... git-receive-pack` transport there while leaving arbitrary SSH blocked.
 
-On macOS, the launcher now keeps top-level agent startup on the real host executable path while still exposing wrapped tools to child processes inside the jail. That split matters because npm-installed CLIs and Homebrew runtimes often bootstrap through JS shims or user-managed interpreters. The generated `sandbox-exec` profile therefore includes the explicit launch allowances needed for normal agent startup.
+On macOS, the launcher now keeps top-level agent startup on the real host executable path while still exposing wrapped tools to child processes inside the jail. That split matters because npm-installed CLIs and Homebrew runtimes often bootstrap through JS shims or user-managed interpreters. The generated `sandbox-exec` profile therefore includes the explicit launch allowances needed for normal agent startup, including the resolved top-level runtime and package root for installs such as npm-managed Codex.
 
 That does not make the broker the hard boundary. Absolute-path execution can still bypass wrapper mediation, so file containment must come from the generated backend profile, not from `PATH` interception.
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 
 The optional `filesystem` section lets you widen read-only visibility and add extra writable roots without exposing your entire home directory. `deny_read_patterns` are expanded from your local home and rendered into the macOS `sandbox-exec` profile as explicit read denials, so broad read-only roots like `~/build` can still exclude secret-like files.
+
+Even if you do not configure extra deny patterns, `agent-jail run` now adds built-in deny defaults for common credential artifacts under the session's readable project roots, including `.env`, `.env.*`, `.envrc`, `.npmrc`, `.netrc`, `id_rsa*`, `*.pem`, `*.key`, and `secrets/` trees. The goal is to make accidental secret discovery harder during normal cross-project work without requiring you to hand-maintain every pattern yourself.
 
 The broker also enforces read scope for explicit file targets. A command can still be low-risk in general and be denied if it tries to read outside the configured project and read-only roots. For example, `cat README.md` in a mounted repo can pass while `cat /etc/passwd` is denied.
 

@@ -179,6 +179,32 @@ CHILD_AGENT_JAIL_ENV_KEYS = {
     "AGENT_JAIL_STATE_HOME",
 }
 
+SECRET_DENY_FILE_NAMES = (
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".env.test",
+    ".envrc",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+)
+
+SECRET_DENY_NESTED_PATTERNS = (
+    "**/.env",
+    "**/.env.*",
+    "**/.envrc",
+    "**/.npmrc",
+    "**/.pypirc",
+    "**/.netrc",
+    "**/id_rsa",
+    "**/id_rsa.*",
+    "**/*.pem",
+    "**/*.key",
+    "**/secrets/**",
+)
+
 
 def _env_passthrough_allowed(name, preserve_env, preserve_env_prefixes):
     if name.startswith("AGENT_JAIL_"):
@@ -316,6 +342,55 @@ def discover_auxiliary_read_roots():
         if os.path.exists(path):
             roots.append(path)
     return roots
+
+
+def default_secret_deny_patterns(roots):
+    patterns = []
+    seen = set()
+    for root in roots or []:
+        if not root:
+            continue
+        normalized_root = os.path.abspath(os.path.expanduser(root))
+        for name in SECRET_DENY_FILE_NAMES:
+            candidate = os.path.join(normalized_root, name)
+            if candidate not in seen:
+                seen.add(candidate)
+                patterns.append(candidate)
+        for suffix in SECRET_DENY_NESTED_PATTERNS:
+            candidate = os.path.join(normalized_root, suffix)
+            if candidate not in seen:
+                seen.add(candidate)
+                patterns.append(candidate)
+    return patterns
+
+
+def _find_node_package_root(path):
+    current = os.path.dirname(path)
+    while current and current != os.path.sep:
+        if os.path.exists(os.path.join(current, "package.json")):
+            return current
+        current = os.path.dirname(current)
+    return None
+
+
+def discover_launch_read_paths(target_argv):
+    paths = []
+    seen = set()
+    for item in target_argv or []:
+        if not item or not os.path.isabs(item) or not os.path.exists(item):
+            continue
+        for candidate in (item, os.path.realpath(item)):
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                paths.append(candidate)
+        if os.path.isfile(item):
+            ext = os.path.splitext(item)[1].lower()
+            if ext in {".js", ".mjs", ".cjs"}:
+                package_root = _find_node_package_root(os.path.realpath(item))
+                if package_root and package_root not in seen:
+                    seen.add(package_root)
+                    paths.append(package_root)
+    return paths
 
 
 def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True, extra_home_mounts=None):
@@ -1093,6 +1168,15 @@ def run(argv=None):
             browser_automation=args.allow_browser,
             direct_secret_env=args.direct_secret_env,
         )
+        deny_read_patterns = default_secret_deny_patterns(
+            [item["path"] for item in session["mounts"] if item.get("path")]
+        ) + list(config.get("filesystem", {}).get("deny_read_patterns", []))
+        deduped_deny_read_patterns = []
+        seen_deny_patterns = set()
+        for pattern in deny_read_patterns:
+            if pattern and pattern not in seen_deny_patterns:
+                seen_deny_patterns.add(pattern)
+                deduped_deny_read_patterns.append(pattern)
         event_sink = EventSink(event_log_path, socket_path=event_socket_path, default_fields={"session": runtime_session})
         event_sink.start()
         runtime_payload = {
@@ -1114,7 +1198,7 @@ def run(argv=None):
             secrets=config.get("secrets", {}),
             git_ssh_hosts=run_defaults.get("git_ssh_hosts", []),
             mounts=session["mounts"] + [{"path": tmp, "mode": "rw"}],
-            deny_read_patterns=config.get("filesystem", {}).get("deny_read_patterns", []),
+            deny_read_patterns=deduped_deny_read_patterns,
             event_sink=event_sink,
             log_stderr=bool(os.environ.get("AGENT_JAIL_LOG_STDERR")),
             llm_policy=config.get("llm_policy", {}),
@@ -1146,9 +1230,7 @@ def run(argv=None):
                 "AGENT_JAIL_SOURCE_ROOT": source_root,
                 "AGENT_JAIL_CAPABILITIES": json.dumps(session["capabilities"], sort_keys=True),
                 "AGENT_JAIL_AUTH_MOUNTS": json.dumps(auth_mounts, sort_keys=True),
-                "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(
-                    config.get("filesystem", {}).get("deny_read_patterns", []), sort_keys=True
-                ),
+                "AGENT_JAIL_DENY_READ_PATTERNS": json.dumps(deduped_deny_read_patterns, sort_keys=True),
                 "AGENT_JAIL_GIT_SSH_HOSTS": json.dumps(run_defaults.get("git_ssh_hosts", []), sort_keys=True),
                 "AGENT_JAIL_HOST_HOME": os.path.expanduser("~"),
                 "HOME": home,
@@ -1234,6 +1316,7 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
+        env["AGENT_JAIL_LAUNCH_READ_PATHS"] = json.dumps(discover_launch_read_paths(target_argv), sort_keys=True)
         if proxy_enabled and args.proxy_commands_only:
             session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")
             with open(session_proxy_env_path, "w", encoding="utf-8") as handle:
