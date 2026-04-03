@@ -26,6 +26,10 @@ AGENT_SCRIPT_MARKERS = (
     "/@openai/codex/",
     "/@anthropic-ai/claude-code/",
 )
+AGENT_KEYCHAIN_SERVICES = {
+    "Claude Code",
+    "Claude Code-credentials",
+}
 READ_ONLY_TOOLS = {"pwd", "ls", "cat", "rg", "grep", "find", "ruby", "head", "printenv"}
 MUTATING_TOOLS = {"mv", "cp", "mkdir", "touch", "sed", "tee"}
 DEFAULT_SENSITIVE_ABSOLUTE_PATHS = {
@@ -231,6 +235,28 @@ def _is_agent_launcher_argv(argv):
         if stem in AGENT_TOOLS:
             return True
     return False
+
+
+def _is_agent_keychain_lookup_argv(argv):
+    if not argv or os.path.basename(argv[0]) != "security":
+        return False
+    if len(argv) < 2 or argv[1] != "find-generic-password":
+        return False
+    service = None
+    wants_secret = False
+    pending_flag = None
+    for item in argv[2:]:
+        if pending_flag is not None:
+            if pending_flag == "-s":
+                service = item
+            pending_flag = None
+            continue
+        if item == "-w":
+            wants_secret = True
+            continue
+        if item in {"-a", "-s"}:
+            pending_flag = item
+    return wants_secret and service in AGENT_KEYCHAIN_SERVICES
 
 
 def _is_python_tool(tool):
@@ -744,6 +770,12 @@ def classify(intent, argv, delegates=None, context=None, secrets=None):
             return {"risk": "low", "reason": "read-only sort", "category": "read-only"}
     if tool in {"chmod", "chown"} or raw.startswith("rm -rf"):
         return {"risk": "high", "reason": "destructive mutation", "category": "destructive"}
+    if _is_agent_keychain_lookup_argv(argv):
+        return {
+            "risk": "low",
+            "reason": "agent auth keychain lookup under agent-jail outer control",
+            "category": "agent-launch",
+        }
     if _is_agent_launcher_argv(argv) and any(flag in argv[1:] for flag in AGENT_LAUNCH_BYPASS_FLAGS):
         return {
             "risk": "low",

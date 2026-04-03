@@ -671,3 +671,56 @@ class BrokerTests(unittest.TestCase):
                 }
             )
         self.assertEqual(result["decision"], "allow")
+
+    def test_claude_keychain_lookup_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "security",
+                        "find-generic-password",
+                        "-a",
+                        "example-user",
+                        "-w",
+                        "-s",
+                        "Claude Code",
+                    ],
+                    "raw": "security find-generic-password -a example-user -w -s Claude Code",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
+    def test_non_agent_keychain_lookup_still_denies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "reject", "reason": "blocked"}),
+                review_wait_timeout=0.1,
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": [
+                        "security",
+                        "find-generic-password",
+                        "-a",
+                        "example-user",
+                        "-w",
+                        "-s",
+                        "Some Other Service",
+                    ],
+                    "raw": "security find-generic-password -a example-user -w -s Some Other Service",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
