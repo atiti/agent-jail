@@ -52,22 +52,56 @@ class BackendTests(unittest.TestCase):
                 ]
             ),
             "AGENT_JAIL_AUTH_MOUNTS": json.dumps(
-                [{"source": "/Users/example/.codex", "target": "/Users/example/.agent-jail/.codex"}]
+                [
+                    {"source": "/Users/example/.codex", "target": "/Users/example/.agent-jail/.codex"},
+                    {
+                        "source": "/Users/example/Library/Preferences/com.apple.security.KCN.plist",
+                        "target": "/Users/example/.agent-jail/Library/Preferences/com.apple.security.KCN.plist",
+                    },
+                ]
             ),
         }
-        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
-        self.assertIn('(subpath "/Users/example/project-rw")', profile)
-        self.assertNotIn('(subpath "/Users/example/project-ro")', profile)
-        self.assertIn('(subpath "/Users/example/.codex")', profile)
-        self.assertIn('(subpath "/private/tmp/test")', profile)
-        self.assertIn('(subpath "/dev/tty")', profile)
-        self.assertIn('(subpath "/dev/ttys001")', profile)
-        self.assertIn('(subpath "/dev/stdin")', profile)
-        self.assertIn('(subpath "/dev/stdout")', profile)
-        self.assertIn('(subpath "/dev/stderr")', profile)
-        self.assertIn('(subpath "/dev/fd")', profile)
-        self.assertIn('(subpath "/dev/null")', profile)
-        self.assertIn("(allow network*)", profile)
+        with mock.patch("agent_jail.backend.os.path.exists", return_value=True), mock.patch(
+            "agent_jail.backend.os.path.isdir",
+            side_effect=lambda path: not path.endswith(".plist"),
+        ):
+            profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+        read_section, _, write_section = profile.partition("(allow file-write*")
+        self.assertIn('(subpath "/Users/example/project-rw")', read_section)
+        self.assertIn('(subpath "/Users/example/project-ro")', read_section)
+        self.assertIn('(subpath "/Users/example/.codex")', read_section)
+        self.assertIn('(literal "/Users/example/Library/Preferences/com.apple.security.KCN.plist")', read_section)
+        self.assertIn('(subpath "/Users/example/Library/Preferences")', read_section)
+        self.assertIn('(subpath "/private/tmp/test")', read_section)
+        self.assertIn('(subpath "/dev/tty")', write_section)
+        self.assertIn('(subpath "/dev/ttys001")', write_section)
+        self.assertIn('(subpath "/dev/stdin")', write_section)
+        self.assertIn('(subpath "/dev/stdout")', write_section)
+        self.assertIn('(subpath "/dev/stderr")', write_section)
+        self.assertIn('(subpath "/dev/fd")', write_section)
+        self.assertIn('(subpath "/dev/null")', write_section)
+        self.assertIn('(subpath "/Users/example/project-rw")', write_section)
+        self.assertIn('(literal "/Users/example/Library/Preferences/com.apple.security.KCN.plist")', write_section)
+        self.assertIn('(subpath "/Users/example/Library/Preferences")', write_section)
+        self.assertNotIn('(subpath "/Users/example/project-ro")', write_section)
+        self.assertNotIn("(allow network*)", profile)
+        self.assertIn('(allow network* (local ip "localhost:*"))', profile)
+        self.assertIn('(allow network* (remote ip "localhost:*"))', profile)
+        self.assertIn("(allow network-outbound (to unix-socket))", profile)
+        self.assertIn('(literal "/private/var/run/ldapi")', profile)
+        self.assertIn('(literal "/var/run/ldapi")', profile)
+        self.assertIn('(allow ipc-posix-shm-read*', profile)
+        self.assertIn('(ipc-posix-name "apple.shm.cfprefsd.daemon")', profile)
+        self.assertIn('(ipc-posix-name-prefix "apple.shm.cfprefsd.")', profile)
+        self.assertIn('(allow user-preference-read', profile)
+        self.assertIn('(preference-domain "kCFPreferencesAnyApplication")', profile)
+        self.assertIn('(preference-domain "com.apple.security")', profile)
+        self.assertIn('(preference-domain "com.apple.security_common")', profile)
+        self.assertIn('(preference-domain "com.apple.security.smartcard")', profile)
+        self.assertIn('(preference-domain "securityd")', profile)
+        self.assertIn('(allow file-read-metadata', profile)
+        self.assertIn('(literal "/Users")', profile)
+        self.assertIn('(literal "/private/var/db/mds/system/mdsObject.db")', profile)
         self.assertIn('(deny file-read*', profile)
         self.assertIn('/Users/example/build/.*/', profile)
         self.assertIn('.env', profile)
@@ -79,8 +113,19 @@ class BackendTests(unittest.TestCase):
         self.assertIn('(literal "/usr/bin/ssh")', profile)
         self.assertIn('(global-name "com.apple.SystemConfiguration.configd")', profile)
         self.assertIn('(global-name "com.apple.notifyd")', profile)
+        self.assertIn('(global-name "com.apple.security")', profile)
+        self.assertIn('(global-name "com.apple.securityd")', profile)
         self.assertIn('(global-name "com.apple.SecurityServer")', profile)
+        self.assertIn('(global-name "com.apple.security.smartcard")', profile)
+        self.assertIn('(global-name "com.apple.TrustEvaluationAgent")', profile)
+        self.assertIn('(global-name "com.apple.system.opendirectoryd.api")', profile)
+        self.assertIn('(import "com.apple.corefoundation.sb")', profile)
+        self.assertIn('(corefoundation)', profile)
         self.assertIn("(allow process-exec)", profile)
+        self.assertIn('(subpath "/bin")', read_section)
+        self.assertIn('(subpath "/usr")', read_section)
+        self.assertIn('(subpath "/System")', read_section)
+        self.assertIn('(subpath "/private/var/db/mds")', read_section)
 
     def test_sandbox_exec_profile_allows_ssh_exec_when_git_ssh_hosts_are_configured(self):
         env = {

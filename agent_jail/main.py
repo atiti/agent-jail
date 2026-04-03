@@ -319,6 +319,13 @@ def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True, ext
         # tools like Claude stop finding existing `security find-generic-password`
         # entries unless `~/Library/Keychains` is mirrored there as well.
         options.append("Library/Keychains")
+        # Hardened `sandbox-exec` sessions also need the per-user keychain
+        # preference state under `~/Library/Preferences` to resolve the login
+        # keychain search list correctly. Mirroring only
+        # `com.apple.security.KCN.plist` was not sufficient under sandboxing:
+        # `security list-keychains` and `find-generic-password` still failed
+        # with "Module Directory Service" errors.
+        options.append("Library/Preferences")
     for item in extra_home_mounts or []:
         if isinstance(item, str) and item and item not in options:
             options.append(item)

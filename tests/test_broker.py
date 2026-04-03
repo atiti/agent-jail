@@ -762,6 +762,24 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "allow")
 
+    def test_claude_keychain_info_probe_is_allowed_without_jit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                os.path.join(tmp, "broker.sock"),
+                store,
+                jit_engine=_StubJIT({"decision_hint": "ask", "reason": "should not be used"}),
+            )
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["security", "show-keychain-info"],
+                    "raw": "security show-keychain-info",
+                    "cwd": tmp,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
+
     def test_npm_global_prefix_probe_is_allowed_without_jit(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = PolicyStore(os.path.join(tmp, "policy.json"))

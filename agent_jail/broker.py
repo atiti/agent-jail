@@ -251,6 +251,8 @@ def _is_agent_launcher_argv(argv):
 def _is_agent_keychain_lookup_argv(argv):
     if not argv or os.path.basename(argv[0]) != "security":
         return False
+    if argv[1:] == ["show-keychain-info"]:
+        return True
     if len(argv) < 2 or argv[1] != "find-generic-password":
         return False
     service = None

@@ -711,6 +711,7 @@ class CLITests(unittest.TestCase):
             os.makedirs(os.path.join(real_home, ".claude"))
             os.makedirs(os.path.join(real_home, ".overwatchr"))
             os.makedirs(os.path.join(real_home, "Library", "Keychains"))
+            os.makedirs(os.path.join(real_home, "Library", "Preferences"))
             os.makedirs(os.path.join(real_home, "build"))
             os.makedirs(os.path.join(real_home, "workspace"))
             old_home = os.environ.get("HOME")
@@ -723,6 +724,9 @@ class CLITests(unittest.TestCase):
                 overwatchr_link = os.path.islink(os.path.join(jail_home, ".overwatchr"))
                 keychains_link = os.path.islink(
                     os.path.join(jail_home, "Library", "Keychains")
+                )
+                preferences_link = os.path.islink(
+                    os.path.join(jail_home, "Library", "Preferences")
                 )
                 build_link = os.path.islink(os.path.join(jail_home, "build"))
                 workspace_link = os.path.islink(os.path.join(jail_home, "workspace"))
@@ -738,12 +742,14 @@ class CLITests(unittest.TestCase):
                     os.path.join(real_home, ".claude"),
                     os.path.join(real_home, ".overwatchr"),
                     os.path.join(real_home, "Library", "Keychains"),
+                    os.path.join(real_home, "Library", "Preferences"),
                 },
             )
             self.assertTrue(codex_link)
             self.assertTrue(claude_link)
             self.assertTrue(overwatchr_link)
             self.assertTrue(keychains_link)
+            self.assertTrue(preferences_link)
             self.assertTrue(build_link)
             self.assertTrue(workspace_link)
 
