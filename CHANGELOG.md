@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Hardened the built-in HTTP and SOCKS5 proxy listeners with optional per-session authentication, and updated launch-env exports/tests to carry authenticated proxy URLs instead of anonymous localhost endpoints.
+- Added broker-side write-scope enforcement for explicit mutating commands and literal Python delete/write paths, so destructive operations are denied outside the declared writable roots while repo-local cleanup still works.
+- Added broker client gating for Unix-socket requests: direct raw `broker.sock` callers are denied unless they arrive through the internal wrapper or capability bridge shape that the jail emits.
+- Hardened secret-bearing delegates by default against generic shell/interpreter entrypoints such as `bash -c` and `python -c`; delegates now need explicit `allow_secret_shell` opt-in for that pattern.
 - Added a first-class `agent-jail network` CLI for `allow`, `deny`, `list`, and `test` operations against shared proxy policy rules.
 - Extended proxy support with a built-in SOCKS5 listener for TCP `CONNECT` traffic while keeping the existing HTTP/HTTPS proxy path.
 - Updated `agent-jail run --proxy` to export HTTP proxy variables plus `SOCKS_PROXY`, while avoiding a forced global `ALL_PROXY` override for better client compatibility.

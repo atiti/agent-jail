@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 
-from agent_jail.broker import BrokerServer, normalize
+from agent_jail.broker import BrokerServer, broker_request, normalize
 from agent_jail.events import EventSink
 from agent_jail.policy import PolicyStore
 
@@ -396,6 +396,57 @@ class BrokerTests(unittest.TestCase):
             )
         self.assertEqual(result["decision"], "deny")
         self.assertIn("outside allowed roots", result["reason"])
+
+    def test_write_guard_denies_rm_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            os.mkdir(repo)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, mounts=[{"path": repo, "mode": "rw"}])
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["rm", "-rf", "/Users/example"],
+                    "raw": "rm -rf /Users/example",
+                    "cwd": repo,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("outside allowed roots", result["reason"])
+
+    def test_write_guard_denies_python_delete_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            os.mkdir(repo)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, mounts=[{"path": repo, "mode": "rw"}])
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["python3", "-c", "import shutil; shutil.rmtree('/Users/example')"],
+                    "raw": 'python3 -c "import shutil; shutil.rmtree(\'/Users/example\')"',
+                    "cwd": repo,
+                }
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("outside allowed roots", result["reason"])
+
+    def test_write_guard_allows_safe_cleanup_inside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            cache_dir = os.path.join(repo, ".pytest_cache")
+            os.makedirs(cache_dir)
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(os.path.join(tmp, "broker.sock"), store, mounts=[{"path": repo, "mode": "rw"}])
+            result = broker.handle(
+                {
+                    "type": "exec",
+                    "argv": ["rm", "-rf", cache_dir],
+                    "raw": f"rm -rf {cache_dir}",
+                    "cwd": repo,
+                }
+            )
+        self.assertEqual(result["decision"], "allow")
 
     def test_ati_cto_brief_script_bypasses_jit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -849,3 +900,49 @@ class BrokerTests(unittest.TestCase):
                 }
             )
         self.assertEqual(result["decision"], "deny")
+
+    def test_socket_denies_direct_exec_request_from_untrusted_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(sock_path, store)
+            thread = threading.Thread(target=broker.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(broker.close)
+            time.sleep(0.05)
+            result = broker_request(
+                sock_path,
+                {
+                    "type": "exec",
+                    "argv": ["git", "status"],
+                    "raw": "git status",
+                    "cwd": tmp,
+                },
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("unauthorized broker client", result["reason"])
+
+    def test_socket_denies_direct_capability_request_from_untrusted_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sock_path = os.path.join(tmp, "broker.sock")
+            store = PolicyStore(os.path.join(tmp, "policy.json"))
+            broker = BrokerServer(
+                sock_path,
+                store,
+                capabilities={"delegate": True, "delegates": ["ops"]},
+                delegates=[{"name": "ops", "allowed_tools": ["opsctl"]}],
+            )
+            thread = threading.Thread(target=broker.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(broker.close)
+            time.sleep(0.05)
+            result = broker_request(
+                sock_path,
+                {
+                    "type": "capability",
+                    "name": "delegate",
+                    "payload": {"name": "ops", "command": ["opsctl", "status"]},
+                },
+            )
+        self.assertEqual(result["decision"], "deny")
+        self.assertIn("unauthorized broker client", result["reason"])

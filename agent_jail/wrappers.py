@@ -4,6 +4,7 @@ import time
 import json
 
 from agent_jail.broker import broker_request
+from agent_jail.broker import WRAPPER_CLIENT_KIND
 
 BLACKLISTED_WRAPPERS = {"agent-jail", "agent-jail-cap"}
 PROXY_RESTORE_WRAPPERS = {"sh", "bash", "zsh"}
@@ -59,7 +60,7 @@ def dispatch_main():
     command = os.environ.get("AGENT_JAIL_INVOKED_AS", "")
     full_argv = [command, *argv]
     sock = os.environ["AGENT_JAIL_SOCKET"]
-    payload = {"type": "exec", "argv": full_argv, "raw": " ".join(full_argv), "cwd": os.getcwd()}
+    payload = {"type": "exec", "argv": full_argv, "raw": " ".join(full_argv), "cwd": os.getcwd(), "client": WRAPPER_CLIENT_KIND}
     for _ in range(20):
         try:
             reply = broker_request(sock, payload)

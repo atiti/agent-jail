@@ -1,8 +1,12 @@
+import ctypes
+import ctypes.util
 import json
 import fnmatch
 import os
 import shlex
 import socket
+import struct
+import subprocess
 import sys
 import threading
 import time
@@ -62,7 +66,12 @@ SAFE_CLEANUP_NAMES = {
     ".tox",
 }
 READ_PATH_TOOLS = {"cat", "head", "ls", "find", "grep", "rg", "sed", "sort", "tail"}
+WRITE_PATH_TOOLS = {"chmod", "chown", "cp", "mkdir", "mv", "rm", "sed", "tee", "touch"}
 CAPABILITY_BRIDGE_MODULE = "agent_jail.cap_cli"
+CAPABILITY_CLIENT_KIND = "capability-bridge"
+WRAPPER_CLIENT_KIND = "wrapper"
+DARWIN_SOL_LOCAL = 0
+DARWIN_LOCAL_PEERPID = 0x002
 FLAG_VALUE_COUNTS = {
     "find": {"maxdepth": 1, "mindepth": 1, "type": 1, "name": 1, "path": 1},
     "grep": {"e": 1, "f": 1, "m": 1},
@@ -72,6 +81,7 @@ FLAG_VALUE_COUNTS = {
     "sort": {"o": 1, "t": 1, "k": 1},
     "tail": {"n": 1, "c": 1},
 }
+_LIBC = None
 GIT_FLAGS_WITH_VALUES = {
     "-C",
     "-c",
@@ -457,6 +467,18 @@ def _allowed_read_roots(context):
     return deduped
 
 
+def _allowed_write_roots(context):
+    roots = [os.path.realpath(os.path.abspath(path)) for path in (context or {}).get("write_roots", []) if path]
+    cwd = (context or {}).get("cwd")
+    if cwd:
+        roots.append(os.path.realpath(os.path.abspath(cwd)))
+    deduped = []
+    for path in roots:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
 def _matches_deny_pattern(candidate, patterns):
     expanded = os.path.abspath(os.path.expanduser(candidate))
     for pattern in patterns or ():
@@ -510,6 +532,135 @@ def _read_scope_violation(intent, argv, context, analysis=None):
         if nested:
             return nested
     return None
+
+
+def _command_write_args(argv):
+    if not argv:
+        return []
+    tool = os.path.basename(argv[0])
+    items = argv[1:]
+    if tool in {"rm", "mkdir", "touch", "tee"}:
+        return [item for item in _non_flag_parts(tool, items) if item and not item.isdigit()]
+    if tool in {"cp", "mv"}:
+        return _non_flag_paths(tool, items)
+    if tool in {"chmod", "chown"}:
+        parts = _non_flag_parts(tool, items)
+        return parts[1:] if len(parts) > 1 else []
+    if tool == "sed":
+        flags = set(item for item in items if item.startswith("-"))
+        if "-i" not in flags and "--in-place" not in flags and not any(item.startswith("-i") for item in items):
+            return []
+        parts = [item for item in items if not item.startswith("-")]
+        return parts[1:] if len(parts) > 1 else []
+    return []
+
+
+def _write_scope_violation(intent, argv, context, analysis=None):
+    roots = _allowed_write_roots(context)
+    cwd = (context or {}).get("cwd")
+    commands = []
+    paths = []
+    if analysis:
+        commands.extend(analysis.get("commands", []))
+        paths.extend(analysis.get("write_paths", []))
+    if intent.get("tool") in WRITE_PATH_TOOLS:
+        paths.extend(_command_write_args(argv))
+    if not roots and paths:
+        return {
+            "risk": "critical",
+            "reason": f"write path is outside allowed roots: {paths[0]}",
+            "category": "write-scope",
+        }
+    for path in paths:
+        if not _path_within_roots(path, cwd, roots):
+            return {
+                "risk": "critical",
+                "reason": f"write path is outside allowed roots: {path}",
+                "category": "write-scope",
+            }
+    for command in commands:
+        nested_intent = normalize(command)
+        nested = _write_scope_violation(nested_intent, command, context, analysis=None)
+        if nested:
+            return nested
+    return None
+
+
+def _load_libc():
+    global _LIBC
+    if _LIBC is not None:
+        return _LIBC
+    path = ctypes.util.find_library("c")
+    if not path:
+        return None
+    _LIBC = ctypes.CDLL(path, use_errno=True)
+    return _LIBC
+
+
+def _peer_euid(connection):
+    libc = _load_libc()
+    if libc is None:
+        return None
+    uid = ctypes.c_uint32()
+    gid = ctypes.c_uint32()
+    result = libc.getpeereid(connection.fileno(), ctypes.byref(uid), ctypes.byref(gid))
+    if result != 0:
+        return None
+    return int(uid.value)
+
+
+def _peer_pid(connection):
+    try:
+        data = connection.getsockopt(DARWIN_SOL_LOCAL, DARWIN_LOCAL_PEERPID, struct.calcsize("i"))
+    except OSError:
+        return None
+    if len(data) < struct.calcsize("i"):
+        return None
+    return int(struct.unpack("i", data[: struct.calcsize("i")])[0])
+
+
+def _peer_command(pid):
+    if not pid:
+        return ""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    return (result.stdout or "").strip()
+
+
+def _command_is_wrapper_bridge(command):
+    return "dispatch_main()" in command and "agent_jail.wrappers" in command
+
+
+def _command_is_capability_bridge(command):
+    return CAPABILITY_BRIDGE_MODULE in command or "agent-jail-cap" in command
+
+
+def _broker_client_violation(connection, request):
+    req_type = request.get("type")
+    if req_type not in {"exec", "capability"}:
+        return "unauthorized broker client"
+    expected_client = request.get("client")
+    if req_type == "exec" and expected_client != WRAPPER_CLIENT_KIND:
+        return "unauthorized broker client"
+    if req_type == "capability" and expected_client != CAPABILITY_CLIENT_KIND:
+        return "unauthorized broker client"
+    peer_uid = _peer_euid(connection)
+    if peer_uid is not None and peer_uid != os.getuid():
+        return "unauthorized broker client"
+    peer_pid = _peer_pid(connection)
+    peer_command = _peer_command(peer_pid)
+    if req_type == "exec" and (not peer_command or _command_is_wrapper_bridge(peer_command)):
+        return None
+    if req_type == "capability" and (not peer_command or _command_is_capability_bridge(peer_command)):
+        return None
+    return "unauthorized broker client"
 
 
 def _secret_env_capability_violation(argv, context, analysis, delegates, secrets):
@@ -842,6 +993,11 @@ class _Handler(StreamRequestHandler):
         if not line:
             return
         request = json.loads(line.decode("utf-8"))
+        violation = _broker_client_violation(self.connection, request)
+        if violation:
+            self.wfile.write((json.dumps({"decision": "deny", "reason": violation}) + "\n").encode("utf-8"))
+            self.wfile.flush()
+            return
         response = self.server.broker.handle(request, self.wfile)
         if response is not None:
             self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
@@ -976,6 +1132,7 @@ class BrokerServer:
         context = {
             "cwd": request.get("cwd"),
             "read_roots": [mount.get("path") for mount in self.mounts if mount.get("path")],
+            "write_roots": [mount.get("path") for mount in self.mounts if mount.get("path") and mount.get("mode") == "rw"],
             "deny_read_patterns": list(self.deny_read_patterns),
             "git_ssh_hosts": list(self.git_ssh_hosts),
         }
@@ -998,6 +1155,20 @@ class BrokerServer:
                 reason=read_guard.get("reason"),
             )
             return {"decision": "deny", "reason": read_guard["reason"]}
+        write_guard = _write_scope_violation(intent, effective_argv, context, analysis=analysis)
+        if write_guard:
+            self._log(
+                "DENY",
+                raw,
+                write_guard.get("category"),
+                kind="exec",
+                tool=intent["tool"],
+                verb=intent["action"],
+                template=event_template(intent, write_guard),
+                risk=write_guard["risk"],
+                reason=write_guard.get("reason"),
+            )
+            return {"decision": "deny", "reason": write_guard["reason"]}
         secret_guard = _secret_env_capability_violation(effective_argv, context, analysis, self.delegates.values(), self.secrets)
         if secret_guard:
             if secret_guard.get("review_kind") == "delegate-config":

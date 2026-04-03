@@ -12,6 +12,7 @@ SECRET_ASSIGN_RE = re.compile(
     r"(\"[^\"]*\"|'[^']*'|[^\s;|&]+)",
     re.IGNORECASE,
 )
+GENERIC_SECRET_ENTRYPOINTS = {"bash", "env", "perl", "python", "ruby", "sh", "zsh"}
 
 
 def _expand_delegate_env_value(value, env):
@@ -120,6 +121,11 @@ def _delegate_note(command):
     return None
 
 
+def _is_generic_secret_entrypoint(tool):
+    base = os.path.basename(tool or "")
+    return base in GENERIC_SECRET_ENTRYPOINTS or base.startswith("python")
+
+
 def _validate_delegate_command(delegate, command):
     if not command:
         raise PermissionError(f"delegate {delegate.get('name', 'unknown')} requires a command")
@@ -135,6 +141,14 @@ def _validate_delegate_command(delegate, command):
         allowed_text = ", ".join(sorted(allowed_tools))
         raise PermissionError(
             f"delegate {delegate.get('name', 'unknown')} does not allow tool {tool}; allowed tools: {allowed_text}"
+        )
+    if (
+        delegate.get("allowed_secrets")
+        and not delegate.get("allow_secret_shell")
+        and _is_generic_secret_entrypoint(tool)
+    ):
+        raise PermissionError(
+            f"delegate {delegate.get('name', 'unknown')} does not allow generic shell/interpreter entrypoints when secrets are injected"
         )
 
 

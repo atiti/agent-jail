@@ -5,6 +5,7 @@ import sys
 
 from agent_jail.broker import broker_request
 from agent_jail.broker import broker_exchange
+from agent_jail.broker import CAPABILITY_CLIENT_KIND
 
 
 def _kill_switch_triggered():
@@ -41,6 +42,7 @@ def _request(payload):
     sock_path = os.environ.get("AGENT_JAIL_SOCKET")
     if not sock_path:
         raise SystemExit("agent-jail-cap requires AGENT_JAIL_SOCKET")
+    payload = {**payload, "client": CAPABILITY_CLIENT_KIND}
     reply = broker_request(sock_path, payload)
     if reply["decision"] != "allow":
         print(f"agent-jail-cap denied: {reply['reason']}", file=sys.stderr)
@@ -56,6 +58,7 @@ def _request_delegate_stream(payload):
     sock_path = os.environ.get("AGENT_JAIL_SOCKET")
     if not sock_path:
         raise SystemExit("agent-jail-cap requires AGENT_JAIL_SOCKET")
+    payload = {**payload, "client": CAPABILITY_CLIENT_KIND}
     frames = broker_exchange(sock_path, payload)
     first = next(frames)
     if first["decision"] != "allow":

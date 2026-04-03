@@ -3,6 +3,7 @@ import os
 import socket
 import tempfile
 import threading
+import base64
 import unittest
 
 from agent_jail.events import EventSink
@@ -10,6 +11,62 @@ from agent_jail.proxy import ProxyPolicy, _relay, start_http_proxy, start_socks_
 
 
 class ProxyTests(unittest.TestCase):
+    def test_http_proxy_requires_auth_when_configured(self):
+        policy = ProxyPolicy([], default_allow=False)
+        server, _ = start_http_proxy(policy, auth={"username": "agent-jail", "password": "secret"})
+        proxy_port = server.server_port
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+                response = client.recv(4096)
+                self.assertIn(b"407", response)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_http_proxy_accepts_basic_auth_when_configured(self):
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+        upstream_port = upstream.getsockname()[1]
+        received = []
+
+        def serve_once():
+            conn, _ = upstream.accept()
+            with conn:
+                data = conn.recv(4096)
+                received.append(data)
+                conn.sendall(b"pong")
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+        policy = ProxyPolicy(
+            [{"kind": "network", "host": "127.0.0.1", "port": upstream_port, "scheme": "tcp", "allow": True}],
+            default_allow=False,
+        )
+        auth = base64.b64encode(b"agent-jail:secret").decode("ascii")
+        server, _ = start_http_proxy(policy, auth={"username": "agent-jail", "password": "secret"})
+        proxy_port = server.server_port
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(
+                    (
+                        f"CONNECT 127.0.0.1:{upstream_port} HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{upstream_port}\r\n"
+                        f"Proxy-Authorization: Basic {auth}\r\n\r\n"
+                    ).encode()
+                )
+                response = client.recv(4096)
+                self.assertIn(b"200 Connection Established", response)
+                client.sendall(b"ping")
+                self.assertEqual(client.recv(4), b"pong")
+        finally:
+            server.shutdown()
+            server.server_close()
+            upstream.close()
+        thread.join(timeout=2)
+        self.assertEqual(received, [b"ping"])
+
     def test_proxy_denies_unknown_host_when_default_is_deny(self):
         policy = ProxyPolicy(
             [
@@ -70,6 +127,60 @@ class ProxyTests(unittest.TestCase):
             with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
                 client.sendall(b"\x05\x01\x00")
                 self.assertEqual(client.recv(2), b"\x05\x00")
+                request = b"\x05\x01\x00\x01" + socket.inet_aton("127.0.0.1") + upstream_port.to_bytes(2, "big")
+                client.sendall(request)
+                response = client.recv(10)
+                self.assertEqual(response[:2], b"\x05\x00")
+                client.sendall(b"ping")
+                self.assertEqual(client.recv(4), b"pong")
+        finally:
+            server.shutdown()
+            server.server_close()
+            upstream.close()
+        thread.join(timeout=2)
+        self.assertEqual(received, [b"ping"])
+
+    def test_socks5_proxy_requires_auth_when_configured(self):
+        policy = ProxyPolicy([], default_allow=False)
+        server, _ = start_socks_proxy(policy, auth={"username": "agent-jail", "password": "secret"})
+        proxy_port = server.server_address[1]
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"\x05\x01\x00")
+                self.assertEqual(client.recv(2), b"\x05\xff")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_socks5_proxy_accepts_username_password_auth(self):
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+        upstream_port = upstream.getsockname()[1]
+        received = []
+
+        def serve_once():
+            conn, _ = upstream.accept()
+            with conn:
+                data = conn.recv(4096)
+                received.append(data)
+                conn.sendall(b"pong")
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+
+        policy = ProxyPolicy(
+            [{"kind": "network", "host": "127.0.0.1", "port": upstream_port, "scheme": "tcp", "allow": True}],
+            default_allow=False,
+        )
+        server, _ = start_socks_proxy(policy, auth={"username": "agent-jail", "password": "secret"})
+        proxy_port = server.server_address[1]
+        try:
+            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as client:
+                client.sendall(b"\x05\x01\x02")
+                self.assertEqual(client.recv(2), b"\x05\x02")
+                client.sendall(b"\x01\x0aagent-jail\x06secret")
+                self.assertEqual(client.recv(2), b"\x01\x00")
                 request = b"\x05\x01\x00\x01" + socket.inet_aton("127.0.0.1") + upstream_port.to_bytes(2, "big")
                 client.sendall(request)
                 response = client.recv(10)

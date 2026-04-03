@@ -1,12 +1,18 @@
 import http.client
 import http.server
 import ipaddress
+import base64
 import select
 import socket
 import socketserver
 import struct
 import threading
 import urllib.parse
+
+
+def _expected_proxy_basic_auth(username, password):
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
 
 
 class ProxyPolicy:
@@ -140,7 +146,7 @@ def _pack_address(host, port):
     return b"\x04" + ip.packed + struct.pack("!H", port)
 
 
-def make_proxy_server(host, port, policy, event_sink=None, debug=False):
+def make_proxy_server(host, port, policy, event_sink=None, debug=False, auth=None):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -159,7 +165,20 @@ def make_proxy_server(host, port, policy, event_sink=None, debug=False):
             _emit_proxy_event(event_sink, "allow", "http", method, host_name, port_num, scheme, verdict["reason"])
             return verdict
 
+        def _check_auth(self):
+            if not auth:
+                return True
+            header = self.headers.get("Proxy-Authorization")
+            if header == _expected_proxy_basic_auth(auth["username"], auth["password"]):
+                return True
+            self.send_response(407, "Proxy Authentication Required")
+            self.send_header("Proxy-Authenticate", 'Basic realm="agent-jail"')
+            self.end_headers()
+            return False
+
         def do_CONNECT(self):
+            if not self._check_auth():
+                return
             host_name, _, port_text = self.path.partition(":")
             port_num = int(port_text or "443")
             if not self._decision("CONNECT", host_name, port_num):
@@ -206,6 +225,8 @@ def make_proxy_server(host, port, policy, event_sink=None, debug=False):
             self._forward()
 
         def _forward(self):
+            if not self._check_auth():
+                return
             parsed = urllib.parse.urlsplit(self.path)
             host_name = parsed.hostname or self.headers.get("Host", "")
             port_num = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -240,7 +261,7 @@ def make_proxy_server(host, port, policy, event_sink=None, debug=False):
     return ThreadingHTTPServer((host, port), Handler)
 
 
-def make_socks_proxy_server(host, port, policy, event_sink=None, debug=False):
+def make_socks_proxy_server(host, port, policy, event_sink=None, debug=False, auth=None):
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             request = self.request
@@ -249,10 +270,27 @@ def make_socks_proxy_server(host, port, policy, event_sink=None, debug=False):
                 if version != 5:
                     return
                 methods = _recv_exact(request, methods_count)
-                if 0 not in methods:
+                if auth:
+                    if 2 not in methods:
+                        request.sendall(b"\x05\xff")
+                        return
+                    request.sendall(b"\x05\x02")
+                    subnegotiation_version = _recv_exact(request, 1)[0]
+                    if subnegotiation_version != 1:
+                        return
+                    username_length = _recv_exact(request, 1)[0]
+                    username = _recv_exact(request, username_length).decode("utf-8")
+                    password_length = _recv_exact(request, 1)[0]
+                    password = _recv_exact(request, password_length).decode("utf-8")
+                    if username != auth["username"] or password != auth["password"]:
+                        request.sendall(b"\x01\x01")
+                        return
+                    request.sendall(b"\x01\x00")
+                elif 0 not in methods:
                     request.sendall(b"\x05\xff")
                     return
-                request.sendall(b"\x05\x00")
+                else:
+                    request.sendall(b"\x05\x00")
                 header = _recv_exact(request, 4)
                 version, command, _reserved, atyp = header
                 if version != 5:
@@ -316,13 +354,13 @@ def _start_server(server):
     return server, thread
 
 
-def start_http_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
-    return _start_server(make_proxy_server(host, port, policy, event_sink=event_sink, debug=debug))
+def start_http_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False, auth=None):
+    return _start_server(make_proxy_server(host, port, policy, event_sink=event_sink, debug=debug, auth=auth))
 
 
-def start_socks_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
-    return _start_server(make_socks_proxy_server(host, port, policy, event_sink=event_sink, debug=debug))
+def start_socks_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False, auth=None):
+    return _start_server(make_socks_proxy_server(host, port, policy, event_sink=event_sink, debug=debug, auth=auth))
 
 
-def start_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False):
-    return start_http_proxy(policy, host=host, port=port, event_sink=event_sink, debug=debug)
+def start_proxy(policy, host="127.0.0.1", port=0, event_sink=None, debug=False, auth=None):
+    return start_http_proxy(policy, host=host, port=port, event_sink=event_sink, debug=debug, auth=auth)

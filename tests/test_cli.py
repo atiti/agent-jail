@@ -5,6 +5,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import unittest
 from unittest import mock
 
@@ -16,6 +17,15 @@ CLI = os.path.join(ROOT, "agent-jail")
 
 
 class CLITests(unittest.TestCase):
+    def assertProxyUrl(self, url, scheme):
+        self.assertIsNotNone(url)
+        parsed = urllib.parse.urlsplit(url)
+        self.assertEqual(parsed.scheme, scheme)
+        self.assertEqual(parsed.hostname, "127.0.0.1")
+        self.assertEqual(parsed.username, "agent-jail")
+        self.assertTrue(parsed.password)
+        self.assertIsNotNone(parsed.port)
+
     def run_cli(self, *args, env=None):
         merged_env = os.environ.copy()
         merged_env["AGENT_JAIL_BACKEND"] = "host"
@@ -349,10 +359,10 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["HTTPS_PROXY"], "http")
         self.assertIsNone(values["ALL_PROXY"])
-        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertProxyUrl(values["SOCKS_PROXY"], "socks5")
 
     def test_run_defaults_to_proxy_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -367,10 +377,10 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["HTTPS_PROXY"], "http")
         self.assertIsNone(values["ALL_PROXY"])
-        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertProxyUrl(values["SOCKS_PROXY"], "socks5")
 
     def test_run_can_disable_default_proxy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -413,10 +423,10 @@ class CLITests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
         self.assertEqual(values["parent"], {"ALL_PROXY": None, "HTTPS_PROXY": None, "HTTP_PROXY": None, "SOCKS_PROXY": None})
-        self.assertTrue(values["child"]["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["child"]["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["child"]["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["child"]["HTTPS_PROXY"], "http")
         self.assertIsNone(values["child"]["ALL_PROXY"])
-        self.assertTrue(values["child"]["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertProxyUrl(values["child"]["SOCKS_PROXY"], "socks5")
 
     def test_run_with_proxy_commands_only_keeps_codex_bootstrap_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -467,10 +477,10 @@ class CLITests(unittest.TestCase):
         }
         self.assertEqual(values["codex_parent"], expected_clean)
         self.assertEqual(values["node_result"]["node_parent"], expected_clean)
-        self.assertTrue(values["node_result"]["child"]["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["node_result"]["child"]["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["node_result"]["child"]["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["node_result"]["child"]["HTTPS_PROXY"], "http")
         self.assertIsNone(values["node_result"]["child"]["ALL_PROXY"])
-        self.assertTrue(values["node_result"]["child"]["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertProxyUrl(values["node_result"]["child"]["SOCKS_PROXY"], "socks5")
 
     def test_run_with_proxy_commands_only_does_not_proxy_non_shell_children(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -513,8 +523,8 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["HTTPS_PROXY"], "http")
         self.assertIsNone(values["ALL_PROXY"])
         self.assertIsNone(values["SOCKS_PROXY"])
 
@@ -543,8 +553,8 @@ class CLITests(unittest.TestCase):
         values = json.loads(proc.stdout.strip())
         self.assertIsNone(values["HTTP_PROXY"])
         self.assertIsNone(values["HTTPS_PROXY"])
-        self.assertTrue(values["ALL_PROXY"].startswith("socks5://127.0.0.1:"))
-        self.assertTrue(values["SOCKS_PROXY"].startswith("socks5://127.0.0.1:"))
+        self.assertProxyUrl(values["ALL_PROXY"], "socks5")
+        self.assertProxyUrl(values["SOCKS_PROXY"], "socks5")
 
     def test_run_with_proxy_mode_codex_http_sets_only_http_proxy_env(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -562,8 +572,8 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["HTTPS_PROXY"], "http")
         self.assertIsNone(values["ALL_PROXY"])
         self.assertIsNone(values["SOCKS_PROXY"])
 
@@ -583,8 +593,8 @@ class CLITests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         values = json.loads(proc.stdout.strip())
-        self.assertTrue(values["HTTP_PROXY"].startswith("http://127.0.0.1:"))
-        self.assertTrue(values["HTTPS_PROXY"].startswith("http://127.0.0.1:"))
+        self.assertProxyUrl(values["HTTP_PROXY"], "http")
+        self.assertProxyUrl(values["HTTPS_PROXY"], "http")
         self.assertIsNone(values["ALL_PROXY"])
         self.assertIsNone(values["SOCKS_PROXY"])
 

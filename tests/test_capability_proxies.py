@@ -143,6 +143,7 @@ class CapabilityProxyTests(unittest.TestCase):
                             "name": "ops",
                             "executor": "/usr/local/bin/delegate-exec",
                             "allowed_tools": ["python3"],
+                            "allow_secret_shell": True,
                             "allowed_secrets": ["age_key_file"],
                             "configured_secrets": {
                                 "age_key_file": {"env": {"AGE_KEY_FILE": "~/keys.txt"}},
@@ -157,6 +158,23 @@ class CapabilityProxyTests(unittest.TestCase):
         env = mocked_run.call_args.kwargs["env"]
         self.assertEqual(env["AGE_KEY_FILE"], "/Users/example/keys.txt")
         self.assertNotIn("OTHER_SECRET", env)
+
+    def test_prepare_delegate_proxy_rejects_generic_shell_for_secret_delegate(self):
+        with self.assertRaises(PermissionError) as exc:
+            prepare_delegate_proxy(
+                {"delegates": ["local-secrets"]},
+                {
+                    "local-secrets": {
+                        "name": "local-secrets",
+                        "allowed_tools": ["bash"],
+                        "allowed_secrets": ["age_key_file"],
+                        "configured_secrets": {"age_key_file": {"env": {"AGE_KEY_FILE": "~/keys.txt"}}},
+                    }
+                },
+                "local-secrets",
+                ["bash", "-lc", "env"],
+            )
+        self.assertIn("generic shell", str(exc.exception))
 
     def test_delegate_result_redacts_secret_like_env_assignments(self):
         with mock.patch("agent_jail.delegate_proxy.subprocess.run") as mocked_run:

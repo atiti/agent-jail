@@ -2,12 +2,14 @@ import argparse
 import json
 import os
 import shutil
+import secrets
 import ssl
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 from datetime import UTC, datetime
 
 from agent_jail.backend import build_command, choose_backend
@@ -93,6 +95,12 @@ def render_cap_launcher(repo_root, python_bin):
         repo_root=repo_root.replace('"', '\\"'),
         python_bin=python_bin.replace('"', '\\"'),
     )
+
+
+def _build_proxy_url(scheme, host, port, username, password):
+    user = urllib.parse.quote(username, safe="")
+    secret = urllib.parse.quote(password, safe="")
+    return f"{scheme}://{user}:{secret}@{host}:{port}"
 
 
 TARGET_ENV_PROFILES = {
@@ -1072,10 +1080,33 @@ def run(argv=None):
         session_proxy_env = {}
         if proxy_enabled:
             policy = ProxyPolicy(store.rules, default_allow=not args.deny_network_by_default)
-            http_proxy_server, _ = start_http_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
-            socks_proxy_server, _ = start_socks_proxy(policy, event_sink=event_sink, debug=args.proxy_debug)
-            http_proxy_url = f"http://127.0.0.1:{http_proxy_server.server_port}"
-            socks_proxy_url = f"socks5://127.0.0.1:{socks_proxy_server.server_address[1]}"
+            proxy_auth = {"username": "agent-jail", "password": secrets.token_urlsafe(18)}
+            http_proxy_server, _ = start_http_proxy(
+                policy,
+                event_sink=event_sink,
+                debug=args.proxy_debug,
+                auth=proxy_auth,
+            )
+            socks_proxy_server, _ = start_socks_proxy(
+                policy,
+                event_sink=event_sink,
+                debug=args.proxy_debug,
+                auth=proxy_auth,
+            )
+            http_proxy_url = _build_proxy_url(
+                "http",
+                "127.0.0.1",
+                http_proxy_server.server_port,
+                proxy_auth["username"],
+                proxy_auth["password"],
+            )
+            socks_proxy_url = _build_proxy_url(
+                "socks5",
+                "127.0.0.1",
+                socks_proxy_server.server_address[1],
+                proxy_auth["username"],
+                proxy_auth["password"],
+            )
             env["AGENT_JAIL_HTTP_PROXY"] = http_proxy_url
             env["AGENT_JAIL_SOCKS_PROXY"] = socks_proxy_url
             proxy_mode = args.proxy_mode or "hybrid"

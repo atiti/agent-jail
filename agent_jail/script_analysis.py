@@ -95,6 +95,7 @@ class _PythonAnalyzer(ast.NodeVisitor):
         self.network = False
         self.dynamic_code = False
         self.read_paths = []
+        self.write_paths = []
         self.string_bindings = {}
         self.path_bindings = {}
 
@@ -137,6 +138,14 @@ class _PythonAnalyzer(ast.NodeVisitor):
         if name == "open" or method in {"write_text", "write_bytes"}:
             if _is_write_call(name, node) or method in {"write_text", "write_bytes"}:
                 self.file_write = True
+                if name == "open" and node.args:
+                    path = _resolve_python_string(node.args[0], self)
+                    if path:
+                        self.write_paths.append(path)
+                elif method in {"write_text", "write_bytes"}:
+                    path = _resolve_python_path(node.func.value, self)
+                    if path:
+                        self.write_paths.append(path)
             elif name == "open" and node.args:
                 path = _resolve_python_string(node.args[0], self)
                 if path:
@@ -156,6 +165,13 @@ class _PythonAnalyzer(ast.NodeVisitor):
             "shutil.rmtree",
         }:
             self.delete = True
+            path = None
+            if node.args:
+                path = _resolve_python_path(node.args[0], self)
+            elif isinstance(node.func, ast.Attribute):
+                path = _resolve_python_path(node.func.value, self)
+            if path:
+                self.write_paths.append(path)
         if name in {
             "requests.get",
             "requests.post",
@@ -264,13 +280,41 @@ def _analyze_python_source(source):
     visitor = _PythonAnalyzer()
     visitor.visit(tree)
     if visitor.dynamic_code:
-        return {"risk": "medium", "category": "general", "template": "python dynamic script", "reason": "python dynamic script"}
+        return {
+            "risk": "medium",
+            "category": "general",
+            "template": "python dynamic script",
+            "reason": "python dynamic script",
+            "read_paths": visitor.read_paths,
+            "write_paths": visitor.write_paths,
+        }
     if visitor.network or visitor.imports.intersection(PYTHON_NETWORK_MODULES):
-        return {"risk": "high", "category": "general", "template": "python network script", "reason": "python network script"}
+        return {
+            "risk": "high",
+            "category": "general",
+            "template": "python network script",
+            "reason": "python network script",
+            "read_paths": visitor.read_paths,
+            "write_paths": visitor.write_paths,
+        }
     if visitor.file_write or visitor.delete:
-        return {"risk": "medium", "category": "general", "template": "python mutating script", "reason": "python mutating script"}
+        return {
+            "risk": "medium",
+            "category": "general",
+            "template": "python mutating script",
+            "reason": "python mutating script",
+            "read_paths": visitor.read_paths,
+            "write_paths": visitor.write_paths,
+        }
     if visitor.shell_subprocess or visitor.dynamic_subprocess:
-        return {"risk": "medium", "category": "general", "template": "python subprocess script", "reason": "python subprocess script"}
+        return {
+            "risk": "medium",
+            "category": "general",
+            "template": "python subprocess script",
+            "reason": "python subprocess script",
+            "read_paths": visitor.read_paths,
+            "write_paths": visitor.write_paths,
+        }
     if visitor.literal_subprocesses:
         categories = [_leaf_tool_category(os.path.basename(args[0])) for args in visitor.literal_subprocesses if args]
         if categories and all(item == "read-only" for item in categories):
@@ -281,6 +325,7 @@ def _analyze_python_source(source):
                 "reason": "python read-only subprocess script",
                 "commands": visitor.literal_subprocesses,
                 "read_paths": visitor.read_paths,
+                "write_paths": visitor.write_paths,
             }
         if any(item == "destructive" for item in categories):
             return {
@@ -290,6 +335,7 @@ def _analyze_python_source(source):
                 "reason": "python destructive subprocess script",
                 "commands": visitor.literal_subprocesses,
                 "read_paths": visitor.read_paths,
+                "write_paths": visitor.write_paths,
             }
         return {
             "risk": "medium",
@@ -298,6 +344,7 @@ def _analyze_python_source(source):
             "reason": "python subprocess script",
             "commands": visitor.literal_subprocesses,
             "read_paths": visitor.read_paths,
+            "write_paths": visitor.write_paths,
         }
     return {
         "risk": "low",
@@ -305,6 +352,7 @@ def _analyze_python_source(source):
         "template": "python local inspection script",
         "reason": "python local inspection script",
         "read_paths": visitor.read_paths,
+        "write_paths": visitor.write_paths,
     }
 
 
