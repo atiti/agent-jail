@@ -51,6 +51,22 @@ DARWIN_METADATA_READ_PATHS = (
     "/private/var/db/mds/system/mdsObject.db",
 )
 
+DARWIN_COMMON_DIRECT_EXEC_DENYLIST = (
+    "/bin/bash",
+    "/bin/dash",
+    "/bin/ksh",
+    "/bin/sh",
+    "/bin/tcsh",
+    "/bin/zsh",
+    "/usr/bin/awk",
+    "/usr/bin/lua",
+    "/usr/bin/osascript",
+    "/usr/bin/perl",
+    "/usr/bin/python",
+    "/usr/bin/python3",
+    "/usr/bin/ruby",
+)
+
 
 def choose_backend(system=None, have=None, preferred=None):
     system = (system or platform.system()).lower()
@@ -227,11 +243,18 @@ def _pattern_to_regex(pattern):
 
 
 def _darwin_denied_exec_paths(env):
-    denied = []
+    denied = set()
     git_ssh_hosts = _load_json_list(env, "AGENT_JAIL_GIT_SSH_HOSTS")
     if not git_ssh_hosts:
-        denied.append("/usr/bin/ssh")
-    return denied
+        denied.add("/usr/bin/ssh")
+
+    denied.update(DARWIN_COMMON_DIRECT_EXEC_DENYLIST)
+
+    exempt = {
+        env.get("AGENT_JAIL_PYTHON"),
+    }
+    exempt.update(_load_json_list(env, "AGENT_JAIL_ALLOWED_EXEC_PATHS"))
+    return sorted(path for path in denied if path and path not in exempt)
 
 
 def build_sandbox_exec_profile(cwd, env):

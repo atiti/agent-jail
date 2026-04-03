@@ -1234,6 +1234,14 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
+        allowed_exec_paths = []
+        for value in (
+            target_argv[0] if target_argv else None,
+            os.environ.get("SHELL"),
+        ):
+            if value and os.path.isabs(value):
+                allowed_exec_paths.append(os.path.realpath(value))
+        env["AGENT_JAIL_ALLOWED_EXEC_PATHS"] = json.dumps(sorted(set(allowed_exec_paths)))
         if proxy_enabled and args.proxy_commands_only:
             session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")
             with open(session_proxy_env_path, "w", encoding="utf-8") as handle:

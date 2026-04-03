@@ -172,6 +172,36 @@ class BackendTests(unittest.TestCase):
 
         self.assertNotIn('(literal "/usr/bin/ssh")', profile)
 
+    def test_sandbox_exec_profile_denies_common_direct_exec_runtimes(self):
+        env = {
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+        }
+
+        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        self.assertIn('(literal "/bin/bash")', profile)
+        self.assertIn('(literal "/bin/zsh")', profile)
+        self.assertIn('(literal "/usr/bin/python3")', profile)
+        self.assertIn('(literal "/usr/bin/perl")', profile)
+        self.assertIn('(literal "/usr/bin/ruby")', profile)
+
+    def test_sandbox_exec_profile_exempts_session_runtime_paths_from_direct_exec_denylist(self):
+        env = {
+            "AGENT_JAIL_MOUNTS": "[]",
+            "AGENT_JAIL_AUTH_MOUNTS": "[]",
+            "AGENT_JAIL_PYTHON": "/opt/homebrew/bin/python3.14",
+            "AGENT_JAIL_ALLOWED_EXEC_PATHS": json.dumps(
+                ["/opt/homebrew/bin/node", "/Users/example/.local/bin/claude"]
+            ),
+        }
+
+        profile = build_sandbox_exec_profile("/Users/example/cwd", env)
+
+        self.assertNotIn('(literal "/opt/homebrew/bin/python3.14")', profile)
+        self.assertNotIn('(literal "/opt/homebrew/bin/node")', profile)
+        self.assertNotIn('(literal "/Users/example/.local/bin/claude")', profile)
+
     @mock.patch("agent_jail.backend.platform.system", return_value="Darwin")
     @mock.patch("agent_jail.backend.os.path.realpath")
     def test_sandbox_exec_profile_includes_darwin_realpath_aliases(self, mock_realpath, _mock_system):
