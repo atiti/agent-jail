@@ -19,6 +19,13 @@ It sits between an agent and the host shell, intercepts commands, applies policy
 - keep logs and reviewable policy state
 - optionally route network traffic through a policy-aware proxy
 
+On macOS, the practical trust model is:
+
+- the broker and wrappers are a policy, audit, and mediation layer
+- the generated `sandbox-exec` profile is the actual file-access boundary
+- absolute-path execution can bypass broker mediation by design
+- network restriction under `sandbox-exec` should be treated as best-effort only, not a hard guarantee
+
 ## What it is good for
 
 - letting an agent work directly inside selected repos without handing it your full host
@@ -334,12 +341,19 @@ The session also resolves capabilities:
 
 Inside the session, proxied capabilities are exposed through `agent-jail-cap` instead of handing the agent raw host tools.
 
-On macOS, the default `sandbox-exec` backend is a stopgap write-containment layer:
+On macOS, the default `sandbox-exec` backend is a stopgap containment layer:
 
-- it constrains writes to the selected writable project paths
+- it constrains file reads and writes to the generated allowlists
 - it keeps auth state and jail state writable where needed
-- it applies to absolute-path shell launches like `/bin/zsh -lc ...`
-- it is still deprecated Apple technology, so treat it as a practical guard rail rather than a future-proof sandbox
+- it still applies to absolute-path launches that skip the broker
+- it is deprecated Apple technology, so treat it as a practical guard rail rather than a future-proof sandbox
+
+That means:
+
+- broker approval is not the same thing as kernel enforcement
+- direct-path tools such as `/usr/bin/python3` can skip wrapper mediation
+- those direct-path tools are only safe to the extent that the `sandbox-exec` profile is tight
+- on current macOS, outbound network restrictions under `sandbox-exec` are not strong enough to treat as a security boundary
 
 Rules live in:
 
@@ -527,7 +541,9 @@ With that profile in place, `agent-jail run <cmd>` behaves like a convenience wr
 
 `git_ssh_hosts` is an explicit allowlist for Git's SSH transport hosts. For example, adding `github.com` lets jailed `git push origin main` use Git's narrow `ssh ... git-receive-pack` transport there while leaving arbitrary SSH blocked.
 
-On macOS, the launcher now keeps top-level agent startup on the real host executable path while still exposing wrapped tools to child processes inside the jail. That split matters because npm-installed CLIs and Homebrew runtimes often bootstrap through JS shims or user-managed interpreters. The generated `sandbox-exec` profile therefore includes the explicit launch allowances needed for normal agent startup, while still keeping broker policy responsible for what the session is allowed to execute afterward.
+On macOS, the launcher now keeps top-level agent startup on the real host executable path while still exposing wrapped tools to child processes inside the jail. That split matters because npm-installed CLIs and Homebrew runtimes often bootstrap through JS shims or user-managed interpreters. The generated `sandbox-exec` profile therefore includes the explicit launch allowances needed for normal agent startup.
+
+That does not make the broker the hard boundary. Absolute-path execution can still bypass wrapper mediation, so file containment must come from the generated backend profile, not from `PATH` interception.
 
 Use `strip_tool_name: true` when the delegate executor is already a tool-specific wrapper and expects only the subcommand argv after the tool name.
 
@@ -597,8 +613,10 @@ The jail also adds a small compatibility layer for agent sessions:
 
 ## Known limits
 
-- Absolute-path shell invocation such as `/bin/zsh -lc ...` is not fully blocked by `PATH` interception alone.
-- macOS `sandbox-exec` improves the `/bin/zsh -lc ...` gap by constraining the process tree, but it is deprecated and should be treated as a stopgap.
+- Absolute-path execution such as `/bin/zsh -lc ...` or `/usr/bin/python3 -c ...` is not blocked by `PATH` interception alone.
+- On macOS, the broker is not the security boundary for those commands; the generated `sandbox-exec` profile is.
+- macOS `sandbox-exec` is still deprecated and should be treated as a stopgap backend.
+- On current macOS, `sandbox-exec` network restrictions are not reliable enough to treat as a hard outbound-network boundary.
 - `alcless` on macOS improves separation but does not give the same absolute-path guarantees as a rootfs-based backend.
 - Linux containment depends on local availability of `bubblewrap` or `proot`.
 - Sensitive capabilities are only protected when they are actually proxied rather than mounted or passed through directly.

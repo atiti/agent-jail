@@ -1,6 +1,6 @@
 # Architecture
 
-`agent-jail` is built around a small brokered execution model.
+`agent-jail` is built around a small brokered execution model with backend-enforced containment.
 
 ## High-level flow
 
@@ -14,6 +14,13 @@
 4. If allowed, the wrapper executes the real binary.
 5. Events are recorded to JSONL logs and exposed through `agent-jail monitor`.
 
+On macOS, there is an important trust-boundary split:
+
+- wrapper and broker mediation only applies to commands that resolve through the generated `PATH`
+- absolute-path execution can bypass the broker entirely
+- the generated `sandbox-exec` profile is therefore the real file-access boundary
+- outbound network controls under `sandbox-exec` should be treated as best-effort, not as a hard security guarantee
+
 ## Main components
 
 ### `agent_jail/main.py`
@@ -23,6 +30,8 @@ CLI entrypoint. Resolves config, prepares mounts and runtime state, selects back
 ### `agent_jail/wrappers.py`
 
 Dispatch layer for wrapped commands. Sends execution requests to the broker and then executes the real binary when approved.
+
+This is a mediation layer, not a kernel-enforced boundary. Absolute-path execution can skip it.
 
 ### `agent_jail/broker.py`
 
@@ -65,4 +74,6 @@ Structured event sink for durable logs and optional live monitoring.
 
 ## Design intent
 
-This project aims to improve operator control and repeatability for agent execution. It is intentionally policy-first and audit-friendly. The broker is the decision point; JIT assistance and backend containment are supporting layers, not substitutes for explicit policy.
+This project aims to improve operator control and repeatability for agent execution. It is intentionally policy-first and audit-friendly.
+
+The broker is the decision point for mediated commands, but it is not the hard boundary on macOS. For absolute-path execution, the backend profile is the actual containment layer. JIT assistance and broker policy improve usability and reviewability, but they do not replace kernel-enforced limits.
