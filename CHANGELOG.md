@@ -4,6 +4,7 @@
 
 - Added built-in deny-read defaults for common secret-like files under readable project roots, including `.env`, `.env.*`, `.envrc`, `.npmrc`, `.netrc`, `id_rsa*`, `*.pem`, `*.key`, and `secrets/` trees, so broad cross-project read access is less likely to expose credentials accidentally.
 - Fixed top-level Codex startup under macOS `sandbox-exec` for npm-managed installs by allowing the resolved launch runtime, JS entrypoint, and package root as explicit read paths during launch.
+- Set `CODEX_HOME` to the stable mounted host `.codex` path for top-level Codex runs so Codex no longer tries to install helper binaries under the temporary per-session home path.
 - Fixed a macOS sandbox overgrant where file-backed home mounts such as `.claude.json` promoted the entire host home into the generated read/write allowlists; the profile now grants the file itself and only metadata traversal on required parent directories.
 - Split persistent state from the effective jailed home: `~/.agent-jail` now remains the control/state directory, while each `agent-jail run` session gets its own per-run home under the session directory instead of sharing one long-lived fake `HOME`.
 - Added `agent-jail cleanup` to prune stale inactive runtime records, orphaned event logs, and old `*.agent-jail-backup-*` leftovers from the shared state directory.

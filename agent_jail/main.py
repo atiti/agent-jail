@@ -393,6 +393,20 @@ def discover_launch_read_paths(target_argv):
     return paths
 
 
+def discover_host_mount_source(auth_mounts, relative_path):
+    relative = relative_path.strip("/").replace("\\", "/")
+    suffix = f"/{relative}" if relative else ""
+    for mount in auth_mounts or []:
+        target = mount.get("target")
+        source = mount.get("source")
+        if not target or not source:
+            continue
+        normalized_target = target.replace("\\", "/")
+        if normalized_target.endswith(suffix):
+            return os.path.realpath(source)
+    return None
+
+
 def prepare_home_mounts(home, mount_codex_home=True, mount_claude_home=True, extra_home_mounts=None):
     os.makedirs(home, exist_ok=True)
     mounts = []
@@ -1316,6 +1330,11 @@ def run(argv=None):
         except FileNotFoundError as exc:
             print(f"agent-jail: target command not found: {exc}", file=sys.stderr)
             return 127
+        target_name = os.path.basename(args.target[0]) if args.target else ""
+        if target_name == "codex":
+            codex_home_source = discover_host_mount_source(auth_mounts, ".codex")
+            if codex_home_source:
+                env["CODEX_HOME"] = codex_home_source
         env["AGENT_JAIL_LAUNCH_READ_PATHS"] = json.dumps(discover_launch_read_paths(target_argv), sort_keys=True)
         if proxy_enabled and args.proxy_commands_only:
             session_proxy_env_path = os.path.join(tmp, "session-proxy-env.json")

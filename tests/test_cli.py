@@ -14,6 +14,7 @@ from agent_jail.main import (
     _format_suggestion_report,
     _review_suggestions_interactively,
     default_secret_deny_patterns,
+    discover_host_mount_source,
     discover_launch_read_paths,
     render_cap_launcher,
 )
@@ -290,6 +291,59 @@ class CLITests(unittest.TestCase):
         self.assertIn(os.path.realpath(node_path), paths)
         self.assertIn(os.path.realpath(script_path), paths)
         self.assertIn(os.path.realpath(package_root), paths)
+
+    def test_discover_host_mount_source_returns_real_source_for_relative_mount(self):
+        mounts = [
+            {
+                "source": "/Users/example/.codex",
+                "target": "/tmp/agent-jail/home/.codex",
+            }
+        ]
+
+        self.assertEqual(discover_host_mount_source(mounts, ".codex"), "/Users/example/.codex")
+
+    def test_run_sets_codex_home_to_stable_host_mount(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            jail_home = os.path.join(tmp, "jail-home")
+            real_home = os.path.join(tmp, "real-home")
+            host_bin = os.path.join(tmp, "host-bin")
+            os.makedirs(repo)
+            os.makedirs(jail_home)
+            os.makedirs(os.path.join(real_home, ".codex"))
+            os.makedirs(host_bin)
+            codex_target = os.path.join(host_bin, "codex")
+            with open(codex_target, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "#!/bin/sh\n"
+                    "exec python3 -c \"import json, os; print(json.dumps({'CODEX_HOME': os.environ.get('CODEX_HOME'), 'HOME': os.environ.get('HOME')}))\"\n"
+                )
+            os.chmod(codex_target, 0o755)
+            old_home = os.environ.get("HOME")
+            old_path = os.environ.get("PATH")
+            os.environ["HOME"] = real_home
+            os.environ["PATH"] = host_bin + os.pathsep + (old_path or "")
+            try:
+                proc = subprocess.run(
+                    [CLI, "run", "codex"],
+                    cwd=repo,
+                    text=True,
+                    capture_output=True,
+                    env={**os.environ, "AGENT_JAIL_BACKEND": "host", "AGENT_JAIL_HOME": jail_home, "AGENT_JAIL_ORIG_PATH": host_bin},
+                )
+            finally:
+                if old_home is None:
+                    del os.environ["HOME"]
+                else:
+                    os.environ["HOME"] = old_home
+                if old_path is None:
+                    del os.environ["PATH"]
+                else:
+                    os.environ["PATH"] = old_path
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        values = json.loads(proc.stdout.strip())
+        self.assertEqual(values["CODEX_HOME"], os.path.realpath(os.path.join(real_home, ".codex")))
+        self.assertNotEqual(values["HOME"], values["CODEX_HOME"])
 
     def test_run_includes_local_skill_roots_as_read_only_mounts(self):
         with tempfile.TemporaryDirectory() as tmp:
